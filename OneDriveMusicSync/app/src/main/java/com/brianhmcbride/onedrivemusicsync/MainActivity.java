@@ -1,5 +1,11 @@
 package com.brianhmcbride.onedrivemusicsync;
 
+import android.Manifest;
+import android.app.DownloadManager;
+import android.content.pm.PackageManager;
+import android.os.Build;
+import android.os.Environment;
+import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.app.Activity;
@@ -9,21 +15,27 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import com.android.volley.*;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+
+import java.io.File;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
 import com.microsoft.identity.client.*;
 
 public class MainActivity extends AppCompatActivity {
+    private long enqueue;
+    private DownloadManager dm;
 
     final static String CLIENT_ID = "8fbb52c6-a9eb-41a1-9933-4be38cdefbd3";
-    final static String SCOPES [] = {"https://graph.microsoft.com/User.Read", "https://graph.microsoft.com/Files.Read"};
+    final static String SCOPES[] = {"https://graph.microsoft.com/User.Read", "https://graph.microsoft.com/Files.Read"};
     final static String MSGRAPH_URL = "https://graph.microsoft.com/v1.0/me";
     final static String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/special/music/delta";
 
@@ -40,11 +52,13 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        isStoragePermissionGranted();
         setContentView(R.layout.activity_main);
 
         callGraphButton = (Button) findViewById(R.id.callGraph);
         signOutButton = (Button) findViewById(R.id.clearCache);
         syncMusicButton = (Button) findViewById(R.id.syncMusic);
+
 
         callGraphButton.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
@@ -225,7 +239,9 @@ public class MainActivity extends AppCompatActivity {
         Log.d(TAG, "Starting volley request to graph");
 
     /* Make sure we have a token to send to graph */
-        if (authResult.getAccessToken() == null) {return;}
+        if (authResult.getAccessToken() == null) {
+            return;
+        }
 
         RequestQueue queue = Volley.newRequestQueue(this);
         JSONObject parameters = new JSONObject();
@@ -236,7 +252,7 @@ public class MainActivity extends AppCompatActivity {
             Log.d(TAG, "Failed to put parameters: " + e.toString());
         }
         JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, MSGRAPH_URL,
-                parameters,new Response.Listener<JSONObject>() {
+                parameters, new Response.Listener<JSONObject>() {
             @Override
             public void onResponse(JSONObject response) {
             /* Successfully called graph, process data and send to UI */
@@ -274,72 +290,78 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void onSyncMusicClicked() {
-            Log.d(TAG, "Starting volley request to graph");
+        Log.d(TAG, "Starting volley request to graph");
 
     /* Make sure we have a token to send to graph */
-            if (authResult.getAccessToken() == null) {return;}
+        if (authResult.getAccessToken() == null) {
+            return;
+        }
 
-            RequestQueue queue = Volley.newRequestQueue(this);
-            JSONObject parameters = new JSONObject();
+        final RequestQueue queue = Volley.newRequestQueue(this);
+        JSONObject parameters = new JSONObject();
 
-            try {
-                parameters.put("key", "value");
-            } catch (Exception e) {
-                Log.d(TAG, "Failed to put parameters: " + e.toString());
-            }
-            JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, DRIVE_MUSIC_ROOT_URL,
-                    parameters,new Response.Listener<JSONObject>() {
-                @Override
-                public void onResponse(JSONObject response) {
+        try {
+            parameters.put("key", "value");
+        } catch (Exception e) {
+            Log.d(TAG, "Failed to put parameters: " + e.toString());
+        }
+        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, DRIVE_MUSIC_ROOT_URL,
+                parameters, new Response.Listener<JSONObject>() {
+            @Override
+            public void onResponse(JSONObject response) {
             /* Successfully called graph, process data and send to UI */
-                    Log.d(TAG, "Response: " + response.toString());
+                Log.d(TAG, "Response: " + response.toString());
 
-                    updateGraphUI(response);
+                updateGraphUI(response);
 
-                    try
-                    {
-                        JSONArray driveItemArray = response.getJSONArray("value");
+                try {
+                    JSONArray driveItemArray = response.getJSONArray("value");
 
-                        for(int i = 0; i < driveItemArray.length(); i++){
-                            JSONObject driveItem = driveItemArray.getJSONObject(i);
+                    for (int i = 0; i < driveItemArray.length(); i++) {
+                        JSONObject driveItem = driveItemArray.getJSONObject(i);
 
-                            if(driveItem.has("file")){
-                                JSONObject driveItemFile = driveItem.getJSONObject("file");
-
-                                if(driveItemFile.has("mimeType") && driveItemFile.getString("mimeType").equals("audio/mpeg")){
-                                    Log.i(TAG, "Found music file:" + driveItem.getString("name"));
-                                }
+                        if (driveItem.has("file")) {
+                            JSONObject driveItemFile = driveItem.getJSONObject("file");
+                            Log.d(TAG, "driveItemFile: " + driveItem.toString());
+                            if (driveItemFile.has("mimeType") && driveItemFile.getString("mimeType").equals("audio/mpeg")) {
+                                dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                                android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(android.net.Uri.parse("https://graph.microsoft.com/v1.0/me/drive/items/" + driveItem.getString("id") + "/content"));
+                                request.addRequestHeader("Authorization", "Bearer " + authResult.getAccessToken());
+                                String path = driveItem.getJSONObject("parentReference").getString("path").replace("/drive/root:/Music/", "");
+                                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, path + "/" + driveItem.getString("name"));
+                                enqueue = dm.enqueue(request);
+                                Log.i(TAG, "Found music file:" + driveItem.getString("name"));
+                                break;
                             }
                         }
-                        //continue sync conditionally...this should go in a recursive function
                     }
-                    catch (Exception e)
-                    {
-                        Log.d(TAG, "Failed to get JSONArray from value: " + e.toString());
-                    }
-
+                    //continue sync conditionally...this should go in a recursive function
+                } catch (Exception e) {
+                    Log.d(TAG, "Failed to get JSONArray from value: " + e.toString());
                 }
-            }, new Response.ErrorListener() {
-                @Override
-                public void onErrorResponse(VolleyError error) {
-                    Log.d(TAG, "Error: " + error.toString());
-                }
-            }) {
-                @Override
-                public Map<String, String> getHeaders() throws AuthFailureError {
-                    Map<String, String> headers = new HashMap<>();
-                    headers.put("Authorization", "Bearer " + authResult.getAccessToken());
-                    return headers;
-                }
-            };
 
-            Log.d(TAG, "Adding HTTP GET to Queue, Request: " + request.toString());
+            }
+        }, new Response.ErrorListener() {
+            @Override
+            public void onErrorResponse(VolleyError error) {
+                Log.d(TAG, "Error: " + error.toString());
+            }
+        }) {
+            @Override
+            public Map<String, String> getHeaders() throws AuthFailureError {
+                Map<String, String> headers = new HashMap<>();
+                headers.put("Authorization", "Bearer " + authResult.getAccessToken());
+                return headers;
+            }
+        };
 
-            request.setRetryPolicy(new DefaultRetryPolicy(
-                    3000,
-                    DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
-                    DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
-            queue.add(request);
+        Log.d(TAG, "Adding HTTP GET to Queue, Request: " + request.toString());
+
+        request.setRetryPolicy(new DefaultRetryPolicy(
+                3000,
+                DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
+                DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
+        queue.add(request);
     }
 
     /* Clears a user's tokens from the cache.
@@ -362,8 +384,7 @@ public class MainActivity extends AppCompatActivity {
                 oneDriveMusicClientApp.remove(users.get(0));
                 updateSignedOutUI();
 
-            }
-            else {
+            } else {
             /* We have multiple users */
                 for (int i = 0; i < users.size(); i++) {
                     oneDriveMusicClientApp.remove(users.get(i));
@@ -391,4 +412,31 @@ public class MainActivity extends AppCompatActivity {
         ((TextView) findViewById(R.id.graphData)).setText("No Data");
     }
 
+    public  boolean isStoragePermissionGranted() {
+        if (Build.VERSION.SDK_INT >= 23) {
+            if (checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    == PackageManager.PERMISSION_GRANTED) {
+                Log.v(TAG,"Permission is granted");
+                return true;
+            } else {
+
+                Log.v(TAG,"Permission is revoked");
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 1);
+                return false;
+            }
+        }
+        else { //permission is automatically granted on sdk<23 upon installation
+            Log.v(TAG,"Permission is granted");
+            return true;
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if(grantResults[0]== PackageManager.PERMISSION_GRANTED){
+            Log.v(TAG,"Permission: "+permissions[0]+ "was "+grantResults[0]);
+            //resume tasks needing this permission
+        }
+    }
 }
