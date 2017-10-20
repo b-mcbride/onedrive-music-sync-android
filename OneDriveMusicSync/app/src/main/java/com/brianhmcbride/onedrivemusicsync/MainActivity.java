@@ -12,6 +12,8 @@ import android.widget.Toast;
 import com.android.volley.*;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
+
+import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.HashMap;
 import java.util.List;
@@ -23,7 +25,7 @@ public class MainActivity extends AppCompatActivity {
     final static String CLIENT_ID = "8fbb52c6-a9eb-41a1-9933-4be38cdefbd3";
     final static String SCOPES [] = {"https://graph.microsoft.com/User.Read", "https://graph.microsoft.com/Files.Read"};
     final static String MSGRAPH_URL = "https://graph.microsoft.com/v1.0/me";
-    final static String DRIVE_ROOT_CHILDREN_URL = "https://graph.microsoft.com/v1.0/me/drive/root/children";
+    final static String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/special/music/delta";
 
     /* UI & Debugging Variables */
     private static final String TAG = MainActivity.class.getSimpleName();
@@ -285,7 +287,7 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception e) {
                 Log.d(TAG, "Failed to put parameters: " + e.toString());
             }
-            JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, DRIVE_ROOT_CHILDREN_URL,
+            JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, DRIVE_MUSIC_ROOT_URL,
                     parameters,new Response.Listener<JSONObject>() {
                 @Override
                 public void onResponse(JSONObject response) {
@@ -293,6 +295,29 @@ public class MainActivity extends AppCompatActivity {
                     Log.d(TAG, "Response: " + response.toString());
 
                     updateGraphUI(response);
+
+                    try
+                    {
+                        JSONArray driveItemArray = response.getJSONArray("value");
+
+                        for(int i = 0; i < driveItemArray.length(); i++){
+                            JSONObject driveItem = driveItemArray.getJSONObject(i);
+
+                            if(driveItem.has("file")){
+                                JSONObject driveItemFile = driveItem.getJSONObject("file");
+
+                                if(driveItemFile.has("mimeType") && driveItemFile.getString("mimeType").equals("audio/mpeg")){
+                                    Log.i(TAG, "Found music file:" + driveItem.getString("name"));
+                                }
+                            }
+                        }
+                        //continue sync conditionally...this should go in a recursive function
+                    }
+                    catch (Exception e)
+                    {
+                        Log.d(TAG, "Failed to get JSONArray from value: " + e.toString());
+                    }
+
                 }
             }, new Response.ErrorListener() {
                 @Override
