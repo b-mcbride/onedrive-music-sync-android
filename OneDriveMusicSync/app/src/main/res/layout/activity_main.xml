@@ -21,14 +21,15 @@
         android:visibility="invisible"/>
 
     <Button
-        android:id="@+id/callGraph"
-        android:text="Call Microsoft Graph"
+        android:id="@+id/signIn"
+        android:text="Sign In"
         android:textColor="#FFFFFF"
         android:background="#00a1f1"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="200dp"
-        android:textAllCaps="false" />
+        android:textAllCaps="false"
+        android:visibility="gone"/>
 
     <Button
         android:id="@+id/syncMusic"
@@ -39,6 +40,16 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="200dp"
         android:textAllCaps="false"
+        android:visibility="gone"/>
+
+    <TextView
+        android:textColor="#3f3f3f"
+        android:textSize="50px"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="10dp"
+        android:layout_marginTop="15dp"
+        android:id="@+id/syncMusicStatus"
         android:visibility="invisible"/>
 
     <LinearLayout
@@ -56,7 +67,7 @@
             android:textColor="#FFFFFF"
             android:background="#00a1f1"
             android:textAllCaps="false"
-            android:id="@+id/clearCache"
+            android:id="@+id/signOut"
             android:visibility="invisible" />
     </LinearLayout>
 
