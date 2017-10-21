@@ -26,6 +26,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.net.URL;
+import java.net.URLDecoder;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,7 +43,9 @@ public class MainActivity extends AppCompatActivity {
     final static String CLIENT_ID = "8fbb52c6-a9eb-41a1-9933-4be38cdefbd3";
     final static String SCOPES[] = {"https://graph.microsoft.com/User.Read", "https://graph.microsoft.com/Files.Read"};
     //final static String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/special/music/delta";
+    //final static String PATH_REPLACE = "/drive/root:/Music/";
     final static String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/root:/OneDriveMusicSync:/delta";
+    final static String PATH_REPLACE = "/drive/root:/OneDriveMusicSync/";
 
     /* UI & Debugging Variables */
     private static final String TAG = MainActivity.class.getSimpleName();
@@ -218,7 +222,6 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.welcome).setVisibility(View.VISIBLE);
         ((TextView) findViewById(R.id.welcome)).setText("Welcome, " +
                 authResult.getUser().getName());
-        findViewById(R.id.graphData).setVisibility(View.VISIBLE);
     }
 
     /* Use MSAL to acquireToken for the end-user
@@ -278,13 +281,14 @@ public class MainActivity extends AppCompatActivity {
                         if (driveItem.has("file")) {
                             JSONObject driveItemFile = driveItem.getJSONObject("file");
                             //Log.d(TAG, "driveItemFile: " + driveItem.toString());
-                            if (driveItemFile.has("mimeType") && driveItemFile.getString("mimeType").equals("audio/mpeg")) {
+                            if ((driveItemFile.has("mimeType") && driveItemFile.getString("mimeType").equals("audio/mpeg")) ||
+                                    driveItem.getString("name").contains(".mp3")) {
                                 Log.i(TAG, "Found music file:" + driveItem.getString("name"));
-                                String path = driveItem.getJSONObject("parentReference").getString("path").replace("/drive/root:/Music/", "");
+                                String path = driveItem.getJSONObject("parentReference").getString("path").replace(PATH_REPLACE, "");
                                 path += "/" + driveItem.getString("name");
+                                path = URLDecoder.decode(path, "UTF-8");
 
                                 if(driveItem.has("deleted")){
-                                    // Get the directory for the user's public pictures directory.
                                     File file = new File(Environment.getExternalStoragePublicDirectory(
                                             Environment.DIRECTORY_MUSIC), path);
 
@@ -312,6 +316,7 @@ public class MainActivity extends AppCompatActivity {
                         SharedPreferences settings = getSharedPreferences(PREFS_NAME, 0);
                         SharedPreferences.Editor editor = settings.edit();
                         editor.putString(ODATA_DELTA_LINK, response.getString(ODATA_DELTA_LINK));
+                        editor.commit();
                     }
                 } catch (Exception e) {
                     Log.d(TAG, "Failed to get JSONArray from value: " + e.toString());
@@ -385,8 +390,6 @@ public class MainActivity extends AppCompatActivity {
         syncMusicButton.setVisibility(View.INVISIBLE);
         signOutButton.setVisibility(View.INVISIBLE);
         findViewById(R.id.welcome).setVisibility(View.INVISIBLE);
-        findViewById(R.id.graphData).setVisibility(View.INVISIBLE);
-        ((TextView) findViewById(R.id.graphData)).setText("No Data");
     }
 
     public  boolean isStoragePermissionGranted() {
