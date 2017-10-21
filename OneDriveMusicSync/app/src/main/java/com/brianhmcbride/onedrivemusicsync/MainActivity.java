@@ -2,7 +2,9 @@ package com.brianhmcbride.onedrivemusicsync;
 
 import android.Manifest;
 import android.app.DownloadManager;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.support.v4.app.ActivityCompat;
@@ -31,13 +33,15 @@ import java.util.Map;
 import com.microsoft.identity.client.*;
 
 public class MainActivity extends AppCompatActivity {
+    public static final String ODATA_DELTA_LINK = "@odata.deltaLink";
+    public static final String ODATA_NEXT_LINK = "@odata.nextLink";
     private long enqueue;
     private DownloadManager dm;
 
     final static String CLIENT_ID = "8fbb52c6-a9eb-41a1-9933-4be38cdefbd3";
     final static String SCOPES[] = {"https://graph.microsoft.com/User.Read", "https://graph.microsoft.com/Files.Read"};
-    final static String MSGRAPH_URL = "https://graph.microsoft.com/v1.0/me";
-    final static String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/special/music/delta";
+    //final static String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/special/music/delta";
+    final static String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/root:/OneDriveMusicSync:/delta";
 
     /* UI & Debugging Variables */
     private static final String TAG = MainActivity.class.getSimpleName();
@@ -46,13 +50,17 @@ public class MainActivity extends AppCompatActivity {
     Button syncMusicButton;
 
     /* Azure AD Variables */
-    private PublicClientApplication oneDriveMusicClientApp;
+    private PublicClientApplication MSALClientApplication;
     private AuthenticationResult authResult;
+
+    public static final String PREFS_NAME = "OneDriveMusicSyncPreferences";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         isStoragePermissionGranted();
+
         setContentView(R.layout.activity_main);
 
         callGraphButton = (Button) findViewById(R.id.callGraph);
@@ -79,9 +87,9 @@ public class MainActivity extends AppCompatActivity {
         });
 
   /* Configure your sample app and save state for this activity */
-        oneDriveMusicClientApp = null;
-        if (oneDriveMusicClientApp == null) {
-            oneDriveMusicClientApp = new PublicClientApplication(
+        MSALClientApplication = null;
+        if (MSALClientApplication == null) {
+            MSALClientApplication = new PublicClientApplication(
                     this.getApplicationContext(),
                     CLIENT_ID);
         }
@@ -92,17 +100,17 @@ public class MainActivity extends AppCompatActivity {
         List<User> users = null;
 
         try {
-            users = oneDriveMusicClientApp.getUsers();
+            users = MSALClientApplication.getUsers();
 
             if (users != null && users.size() == 1) {
           /* We have 1 user */
 
-                oneDriveMusicClientApp.acquireTokenSilentAsync(SCOPES, users.get(0), getAuthSilentCallback());
+                MSALClientApplication.acquireTokenSilentAsync(SCOPES, users.get(0), getAuthSilentCallback());
             } else {
           /* We have no user */
 
           /* Let's do an interactive request */
-                oneDriveMusicClientApp.acquireToken(this, SCOPES, getAuthInteractiveCallback());
+                MSALClientApplication.acquireToken(this, SCOPES, getAuthInteractiveCallback());
             }
         } catch (MsalClientException e) {
             Log.d(TAG, "MSAL Exception Generated while getting users: " + e.toString());
@@ -110,7 +118,6 @@ public class MainActivity extends AppCompatActivity {
         } catch (IndexOutOfBoundsException e) {
             Log.d(TAG, "User at this position does not exist: " + e.toString());
         }
-
     }
 
 //
@@ -139,9 +146,6 @@ public class MainActivity extends AppCompatActivity {
             /* Store the authResult */
                 authResult = authenticationResult;
 
-            /* call graph */
-                callGraphAPI();
-
             /* update the UI to post call Graph state */
                 updateSuccessUI();
             }
@@ -168,7 +172,6 @@ public class MainActivity extends AppCompatActivity {
         };
     }
 
-
     /* Callback used for interactive request.  If succeeds we use the access
          * token to call the Microsoft Graph. Does not check cache
          */
@@ -182,9 +185,6 @@ public class MainActivity extends AppCompatActivity {
 
             /* Store the auth result */
                 authResult = authenticationResult;
-
-            /* call Graph */
-                //callGraphAPI();
 
             /* update the UI to post call Graph state */
                 updateSuccessUI();
@@ -225,20 +225,28 @@ public class MainActivity extends AppCompatActivity {
      * Callback will call Graph api w/ access token & update UI
      */
     private void onCallGraphClicked() {
-        oneDriveMusicClientApp.acquireToken(getActivity(), SCOPES, getAuthInteractiveCallback());
+        MSALClientApplication.acquireToken(getActivity(), SCOPES, getAuthInteractiveCallback());
     }
 
     /* Handles the redirect from the System Browser */
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        oneDriveMusicClientApp.handleInteractiveRequestRedirect(requestCode, resultCode, data);
+        MSALClientApplication.handleInteractiveRequestRedirect(requestCode, resultCode, data);
     }
 
-    /* Use Volley to make an HTTP request to the /me endpoint from MS Graph using an access token */
-    private void callGraphAPI() {
-        Log.d(TAG, "Starting volley request to graph");
+    private void onSyncMusicClicked() {
+        SharedPreferences settings = getSharedPreferences(PREFS_NAME, 0);
+        String deltaLink = settings.getString(ODATA_DELTA_LINK, null);
 
-    /* Make sure we have a token to send to graph */
+        if(deltaLink == null){
+            deltaLink = DRIVE_MUSIC_ROOT_URL;
+        }
+
+        SyncMusic(deltaLink, null);
+    }
+
+    private void SyncMusic(String deltaLink, String nextLink){
+        /* Make sure we have a token to send to graph */
         if (authResult.getAccessToken() == null) {
             return;
         }
@@ -251,68 +259,15 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             Log.d(TAG, "Failed to put parameters: " + e.toString());
         }
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, MSGRAPH_URL,
+
+        String url = deltaLink == null ? nextLink : deltaLink;
+
+        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url,
                 parameters, new Response.Listener<JSONObject>() {
             @Override
             public void onResponse(JSONObject response) {
             /* Successfully called graph, process data and send to UI */
                 Log.d(TAG, "Response: " + response.toString());
-
-                updateGraphUI(response);
-            }
-        }, new Response.ErrorListener() {
-            @Override
-            public void onErrorResponse(VolleyError error) {
-                Log.d(TAG, "Error: " + error.toString());
-            }
-        }) {
-            @Override
-            public Map<String, String> getHeaders() throws AuthFailureError {
-                Map<String, String> headers = new HashMap<>();
-                headers.put("Authorization", "Bearer " + authResult.getAccessToken());
-                return headers;
-            }
-        };
-
-        Log.d(TAG, "Adding HTTP GET to Queue, Request: " + request.toString());
-
-        request.setRetryPolicy(new DefaultRetryPolicy(
-                3000,
-                DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
-                DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
-        queue.add(request);
-    }
-
-    /* Sets the Graph response */
-    private void updateGraphUI(JSONObject graphResponse) {
-        TextView graphText = (TextView) findViewById(R.id.graphData);
-        graphText.setText(graphResponse.toString());
-    }
-
-    private void onSyncMusicClicked() {
-        Log.d(TAG, "Starting volley request to graph");
-
-    /* Make sure we have a token to send to graph */
-        if (authResult.getAccessToken() == null) {
-            return;
-        }
-
-        final RequestQueue queue = Volley.newRequestQueue(this);
-        JSONObject parameters = new JSONObject();
-
-        try {
-            parameters.put("key", "value");
-        } catch (Exception e) {
-            Log.d(TAG, "Failed to put parameters: " + e.toString());
-        }
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, DRIVE_MUSIC_ROOT_URL,
-                parameters, new Response.Listener<JSONObject>() {
-            @Override
-            public void onResponse(JSONObject response) {
-            /* Successfully called graph, process data and send to UI */
-                Log.d(TAG, "Response: " + response.toString());
-
-                updateGraphUI(response);
 
                 try {
                     JSONArray driveItemArray = response.getJSONArray("value");
@@ -322,20 +277,42 @@ public class MainActivity extends AppCompatActivity {
 
                         if (driveItem.has("file")) {
                             JSONObject driveItemFile = driveItem.getJSONObject("file");
-                            Log.d(TAG, "driveItemFile: " + driveItem.toString());
+                            //Log.d(TAG, "driveItemFile: " + driveItem.toString());
                             if (driveItemFile.has("mimeType") && driveItemFile.getString("mimeType").equals("audio/mpeg")) {
-                                dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-                                android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(android.net.Uri.parse("https://graph.microsoft.com/v1.0/me/drive/items/" + driveItem.getString("id") + "/content"));
-                                request.addRequestHeader("Authorization", "Bearer " + authResult.getAccessToken());
-                                String path = driveItem.getJSONObject("parentReference").getString("path").replace("/drive/root:/Music/", "");
-                                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, path + "/" + driveItem.getString("name"));
-                                enqueue = dm.enqueue(request);
                                 Log.i(TAG, "Found music file:" + driveItem.getString("name"));
-                                break;
+                                String path = driveItem.getJSONObject("parentReference").getString("path").replace("/drive/root:/Music/", "");
+                                path += "/" + driveItem.getString("name");
+
+                                if(driveItem.has("deleted")){
+                                    // Get the directory for the user's public pictures directory.
+                                    File file = new File(Environment.getExternalStoragePublicDirectory(
+                                            Environment.DIRECTORY_MUSIC), path);
+
+                                    if(file.exists() && file.isFile()){
+                                        file.delete();
+                                    }
+                                }else {
+                                    dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+
+                                    DownloadManager.Request request = new DownloadManager.Request(Uri.parse("https://graph.microsoft.com/v1.0/me/drive/items/" + driveItem.getString("id") + "/content"));
+                                    request.addRequestHeader("Authorization", "Bearer " + authResult.getAccessToken());
+                                    request.setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, path);
+                                    request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE);
+                                    request.setVisibleInDownloadsUi(true);
+
+                                    enqueue = dm.enqueue(request);
+                                }
                             }
                         }
                     }
-                    //continue sync conditionally...this should go in a recursive function
+
+                    if(response.has(ODATA_NEXT_LINK)){
+                        SyncMusic(null, response.getString(ODATA_NEXT_LINK));
+                    } else if(response.has(ODATA_DELTA_LINK)){
+                        SharedPreferences settings = getSharedPreferences(PREFS_NAME, 0);
+                        SharedPreferences.Editor editor = settings.edit();
+                        editor.putString(ODATA_DELTA_LINK, response.getString(ODATA_DELTA_LINK));
+                    }
                 } catch (Exception e) {
                     Log.d(TAG, "Failed to get JSONArray from value: " + e.toString());
                 }
@@ -373,7 +350,7 @@ public class MainActivity extends AppCompatActivity {
         List<User> users = null;
 
         try {
-            users = oneDriveMusicClientApp.getUsers();
+            users = MSALClientApplication.getUsers();
 
             if (users == null) {
             /* We have no users */
@@ -381,13 +358,13 @@ public class MainActivity extends AppCompatActivity {
             } else if (users.size() == 1) {
             /* We have 1 user */
             /* Remove from token cache */
-                oneDriveMusicClientApp.remove(users.get(0));
+                MSALClientApplication.remove(users.get(0));
                 updateSignedOutUI();
 
             } else {
             /* We have multiple users */
                 for (int i = 0; i < users.size(); i++) {
-                    oneDriveMusicClientApp.remove(users.get(i));
+                    MSALClientApplication.remove(users.get(i));
                 }
             }
 
