@@ -2,12 +2,16 @@ package com.brianhmcbride.onedrivemusicsync;
 
 import android.Manifest;
 import android.app.DownloadManager;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.LocalBroadcastManager;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.app.Activity;
@@ -34,19 +38,10 @@ import java.util.Map;
 import com.microsoft.identity.client.*;
 
 public class MainActivity extends AppCompatActivity {
-    static final String ODATA_DELTA_LINK = "@odata.deltaLink";
-    static final String ODATA_NEXT_LINK = "@odata.nextLink";
+    public static final String TAG = MainActivity.class.getSimpleName();
     static final String CLIENT_ID = "8fbb52c6-a9eb-41a1-9933-4be38cdefbd3";
     static final String SCOPES[] = {"https://graph.microsoft.com/User.Read", "https://graph.microsoft.com/Files.Read"};
-    static final String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/root:/OneDriveMusicSync:/delta"; //"https://graph.microsoft.com/v1.0/me/drive/special/music/delta"
-    static final String PATH_REPLACE = "/drive/root:/OneDriveMusicSync/"; //"/drive/root:/Music/"
-    static final String TAG = MainActivity.class.getSimpleName();
-    static final String PREFS_NAME = "OneDriveMusicSyncPreferences";
 
-    int queuedDownloads = 0;
-    int deletes = 0;
-    long enqueue;
-    DownloadManager dm;
     Button signInButton;
     Button signOutButton;
     Button syncMusicButton;
@@ -86,6 +81,42 @@ public class MainActivity extends AppCompatActivity {
 
         syncMusicStatusText = (TextView) findViewById(R.id.syncMusicStatus);
         welcomeText = (TextView) findViewById(R.id.welcome);
+
+        IntentFilter musicSyncCompleteIntentFilter = new IntentFilter(MusicSyncIntentService.BROADCAST_COMPLETE_ACTION);
+
+        LocalBroadcastManager.getInstance(this).registerReceiver(new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                String status = intent.getStringExtra(MusicSyncIntentService.EXTENDED_DATA_STATUS);
+
+                String[] statuses = status.split("\\|");
+                int queuedDownloads = Integer.parseInt(statuses[0]);
+                int deletes = Integer.parseInt(statuses[1]);
+                int failures = Integer.parseInt(statuses[2]);
+
+                if (queuedDownloads == 0 && deletes == 0) {
+                    syncMusicStatusText.setText("Your collection is already in sync");
+                } else {
+                    syncMusicStatusText.setText("Queued " + queuedDownloads + " download(s). Performed " + deletes + " deletion(s). Total failures: " + failures);
+                }
+            }
+        }, musicSyncCompleteIntentFilter);
+
+        IntentFilter musicSyncPartialIntentFilter = new IntentFilter(MusicSyncIntentService.BROADCAST_PARTIAL_ACTION);
+
+        LocalBroadcastManager.getInstance(this).registerReceiver(new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                String status = intent.getStringExtra(MusicSyncIntentService.EXTENDED_DATA_STATUS);
+
+                String[] statuses = status.split("|");
+                int queuedDownloads = Integer.parseInt(statuses[0]);
+                int deletes = Integer.parseInt(statuses[1]);
+                int failures = Integer.parseInt(statuses[2]);
+
+                syncMusicStatusText.setText("Queued " + queuedDownloads + " download(s). Performed " + deletes + " deletion(s). Total failures: " + failures);
+            }
+        }, musicSyncPartialIntentFilter);
 
         /* Configure your sample app and save state for this activity */
         MSALClientApplication = null;
@@ -197,7 +228,16 @@ public class MainActivity extends AppCompatActivity {
         signOutButton.setVisibility(View.VISIBLE);
         syncMusicButton.setVisibility(View.VISIBLE);
         syncMusicStatusText.setVisibility(View.VISIBLE);
-        syncMusicStatusText.setText("");
+
+        SharedPreferences settings = getSharedPreferences(MusicSyncIntentService.PREFS_NAME, 0);
+        String deltaLink = settings.getString(MusicSyncIntentService.ODATA_DELTA_LINK, null);
+
+        if (deltaLink == null) {
+            syncMusicStatusText.setText("Initial sync will take a long time depending on your collection size");
+        } else {
+            syncMusicStatusText.setText("");
+        }
+
         welcomeText.setVisibility(View.VISIBLE);
         welcomeText.setText("Welcome, " + authResult.getUser().getName());
     }
@@ -224,125 +264,15 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void onSyncMusicClicked() {
-        SharedPreferences settings = getSharedPreferences(PREFS_NAME, 0);
-        String deltaLink = settings.getString(ODATA_DELTA_LINK, null);
-
-        if (deltaLink == null) {
-            deltaLink = DRIVE_MUSIC_ROOT_URL;
-        }
-
-        queuedDownloads = 0;
-        deletes = 0;
-
-        syncMusicStatusText.setVisibility(View.VISIBLE);
-        syncMusicStatusText.setText("Processing...");
-        SyncMusic(deltaLink, null);
-    }
-
-    private void SyncMusic(String deltaLink, String nextLink) {
         if (authResult.getAccessToken() == null) {
+            Toast.makeText(getBaseContext(), "You must sign in before syncing", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        RequestQueue queue = Volley.newRequestQueue(this);
-        JSONObject parameters = new JSONObject();
+        syncMusicStatusText.setVisibility(View.VISIBLE);
+        syncMusicStatusText.setText("Processing...");
 
-        try {
-            parameters.put("key", "value");
-        } catch (Exception e) {
-            Log.d(TAG, "Failed to put parameters: " + e.toString());
-        }
-
-        String url = deltaLink == null ? nextLink : deltaLink;
-
-        JsonObjectRequest request = new JsonObjectRequest(
-                Request.Method.GET,
-                url,
-                parameters,
-                new Response.Listener<JSONObject>() {
-                    @Override
-                    public void onResponse(JSONObject response) {
-                        try {
-                            JSONArray driveItemArray = response.getJSONArray("value");
-
-                            for (int i = 0; i < driveItemArray.length(); i++) {
-                                JSONObject driveItem = driveItemArray.getJSONObject(i);
-
-                                if (driveItem.has("file")) {
-                                    JSONObject driveItemFile = driveItem.getJSONObject("file");
-
-                                    if ((driveItemFile.has("mimeType") && driveItemFile.getString("mimeType").equals("audio/mpeg")) ||
-                                            driveItem.getString("name").contains(".mp3")) {
-
-                                        String path = driveItem.getJSONObject("parentReference").getString("path").replace(PATH_REPLACE, "");
-                                        path += "/" + driveItem.getString("name");
-                                        path = URLDecoder.decode(path, "UTF-8");
-
-                                        if (driveItem.has("deleted")) {
-                                            File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), path);
-
-                                            if (file.exists() && file.isFile()) {
-                                                file.delete();
-                                                deletes++;
-                                            }
-                                        } else {
-                                            dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-
-                                            DownloadManager.Request request = new DownloadManager.Request(Uri.parse("https://graph.microsoft.com/v1.0/me/drive/items/" + driveItem.getString("id") + "/content"));
-                                            request.addRequestHeader("Authorization", "Bearer " + authResult.getAccessToken());
-                                            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, path);
-                                            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE);
-                                            request.setVisibleInDownloadsUi(true);
-
-                                            enqueue = dm.enqueue(request);
-                                            queuedDownloads++;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (response.has(ODATA_NEXT_LINK)) {
-                                SyncMusic(null, response.getString(ODATA_NEXT_LINK));
-                            } else if (response.has(ODATA_DELTA_LINK)) {
-                                SharedPreferences settings = getSharedPreferences(PREFS_NAME, 0);
-                                SharedPreferences.Editor editor = settings.edit();
-                                editor.putString(ODATA_DELTA_LINK, response.getString(ODATA_DELTA_LINK));
-                                editor.commit();
-
-                                if (queuedDownloads == 0 && deletes == 0) {
-                                    syncMusicStatusText.setText("Your collection is already in sync");
-                                } else {
-                                    syncMusicStatusText.setText("Queued " + queuedDownloads + " download(s). Performed " + deletes + " deletion(s)");
-                                }
-                            }
-                        } catch (Exception e) {
-                            Log.d(TAG, "Failed to get JSONArray from value: " + e.toString());
-                        }
-
-                    }
-                },
-                new Response.ErrorListener() {
-                    @Override
-                    public void onErrorResponse(VolleyError error) {
-                        Log.d(TAG, "Error: " + error.toString());
-                    }
-                }) {
-            @Override
-            public Map<String, String> getHeaders() throws AuthFailureError {
-                Map<String, String> headers = new HashMap<>();
-                headers.put("Authorization", "Bearer " + authResult.getAccessToken());
-                return headers;
-            }
-        };
-
-        Log.d(TAG, "Adding HTTP GET to Queue, Request: " + request.toString());
-
-        request.setRetryPolicy(new DefaultRetryPolicy(
-                3000,
-                DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
-                DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
-
-        queue.add(request);
+        MusicSyncIntentService.startActionSync(getActivity(), authResult.getAccessToken());
     }
 
     /* Clears a user's tokens from the cache.
