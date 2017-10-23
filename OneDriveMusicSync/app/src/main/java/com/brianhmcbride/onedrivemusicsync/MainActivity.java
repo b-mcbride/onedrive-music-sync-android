@@ -50,6 +50,16 @@ public class MainActivity extends AppCompatActivity {
     PublicClientApplication MSALClientApplication;
     AuthenticationResult authResult;
 
+    private BroadcastReceiver syncCompleteBroadcastReceiver;
+    private BroadcastReceiver syncPartialBroadcastReceiver;
+
+    @Override
+    protected  void onDestroy(){
+        super.onDestroy();;
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(syncCompleteBroadcastReceiver);
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(syncPartialBroadcastReceiver);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -82,9 +92,9 @@ public class MainActivity extends AppCompatActivity {
         syncMusicStatusText = (TextView) findViewById(R.id.syncMusicStatus);
         welcomeText = (TextView) findViewById(R.id.welcome);
 
-        IntentFilter musicSyncCompleteIntentFilter = new IntentFilter(MusicSyncIntentService.BROADCAST_COMPLETE_ACTION);
+        IntentFilter musicSyncCompleteIntentFilter = new IntentFilter(MusicSyncIntentService.BROADCAST_SYNC_COMPLETE_ACTION);
 
-        LocalBroadcastManager.getInstance(this).registerReceiver(new BroadcastReceiver() {
+        syncCompleteBroadcastReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 String status = intent.getStringExtra(MusicSyncIntentService.EXTENDED_DATA_STATUS);
@@ -97,26 +107,38 @@ public class MainActivity extends AppCompatActivity {
                 if (queuedDownloads == 0 && deletes == 0) {
                     syncMusicStatusText.setText("Your collection is already in sync");
                 } else {
-                    syncMusicStatusText.setText("Queued " + queuedDownloads + " download(s). Performed " + deletes + " deletion(s). Total failures: " + failures);
+                    syncMusicStatusText.setText("Complete. Queuing downloads." + System.getProperty("line.separator") + "Found " + queuedDownloads + " new song(s). Found " + deletes + " deletion(s). Total failures: " + failures);
                 }
+
+                MusicSyncIntentService.startActionDownloadAndDelete(getActivity(), authResult.getAccessToken());
             }
-        }, musicSyncCompleteIntentFilter);
+        };
 
-        IntentFilter musicSyncPartialIntentFilter = new IntentFilter(MusicSyncIntentService.BROADCAST_PARTIAL_ACTION);
+        LocalBroadcastManager.getInstance(this).registerReceiver(syncCompleteBroadcastReceiver, musicSyncCompleteIntentFilter);
 
-        LocalBroadcastManager.getInstance(this).registerReceiver(new BroadcastReceiver() {
+        IntentFilter musicSyncPartialIntentFilter = new IntentFilter(MusicSyncIntentService.BROADCAST_SYNC_PARTIAL_ACTION);
+
+        syncPartialBroadcastReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 String status = intent.getStringExtra(MusicSyncIntentService.EXTENDED_DATA_STATUS);
 
-                String[] statuses = status.split("|");
+                String[] statuses = status.split("\\|");
                 int queuedDownloads = Integer.parseInt(statuses[0]);
                 int deletes = Integer.parseInt(statuses[1]);
                 int failures = Integer.parseInt(statuses[2]);
 
-                syncMusicStatusText.setText("Queued " + queuedDownloads + " download(s). Performed " + deletes + " deletion(s). Total failures: " + failures);
+                if (queuedDownloads == 0 && deletes == 0) {
+                    syncMusicStatusText.setText("Your collection is already in sync");
+                } else {
+                    syncMusicStatusText.setText("Complete. Queuing downloads." + System.getProperty("line.separator") + "Found " + queuedDownloads + " new song(s). Found " + deletes + " deletion(s). Total failures: " + failures);
+                }
+
+                MusicSyncIntentService.startActionDownloadAndDelete(getActivity(), authResult.getAccessToken());
             }
-        }, musicSyncPartialIntentFilter);
+        };
+
+        LocalBroadcastManager.getInstance(this).registerReceiver(syncPartialBroadcastReceiver, musicSyncPartialIntentFilter);
 
         /* Configure your sample app and save state for this activity */
         MSALClientApplication = null;
