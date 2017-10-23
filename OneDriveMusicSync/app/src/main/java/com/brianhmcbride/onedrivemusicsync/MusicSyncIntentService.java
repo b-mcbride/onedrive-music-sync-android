@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
 import android.widget.Toast;
@@ -45,12 +46,13 @@ public class MusicSyncIntentService extends IntentService {
     public static final String BROADCAST_SYNC_PARTIAL_ACTION = "com.brianhmcbride.onedrivemusicsync.PARTIAL";
     public static final String EXTENDED_DATA_STATUS = "com.brianhmcbride.onedrivemusicsync.STATUS";
 
+    static final String WAKE_LOCK_TAG = "com.brianhmcbride.onedrivemusicsync.wakelock";
     static final String ODATA_NEXT_LINK = "@odata.nextLink";
     static final String ACTION_SYNC = "com.brianhmcbride.onedrivemusicsync.action.SYNC";
     static final String ACTION_DOWNLOAD_AND_DELETE = "com.brianhmcbride.onedrivemusicsync.action.DOWNLOAD_AND_DELETE";
     static final String EXTRA_BEARER_TOKEN = "com.brianhmcbride.onedrivemusicsync.extra.BEARER_TOKEN";
-    static final String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/root:/OneDriveMusicSync:/delta"; //"https://graph.microsoft.com/v1.0/me/drive/root:/OneDriveMusicSync:/delta";
-    static final String PATH_REPLACE = "/drive/root:/OneDriveMusicSync/"; //"/drive/root:/OneDriveMusicSync/";
+    static final String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/root:/Music:/delta"; //"https://graph.microsoft.com/v1.0/me/drive/root:/OneDriveMusicSync:/delta";
+    static final String PATH_REPLACE = "/drive/root:/Music/"; //"/drive/root:/OneDriveMusicSync/";
     static final String MUSIC_STORAGE_FOLDER = "OneDriveMusicSync";
 
     int failures = 0;
@@ -108,6 +110,10 @@ public class MusicSyncIntentService extends IntentService {
             if (ACTION_DOWNLOAD_AND_DELETE.equals(action)) {
                 bearerToken = intent.getStringExtra(EXTRA_BEARER_TOKEN);
 
+                PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+                PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG);
+
+                wakeLock.acquire();
                 if (deletions.size() > 0) {
                     DeleteItems();
 
@@ -119,6 +125,8 @@ public class MusicSyncIntentService extends IntentService {
 
                     showToast("Music files queued to download");
                 }
+
+                wakeLock.release();
             }
         }
     }
@@ -130,6 +138,7 @@ public class MusicSyncIntentService extends IntentService {
                 DownloadManager.Request request = new DownloadManager.Request(download.getDownloadUri());
                 request.addRequestHeader("Authorization", "Bearer " + bearerToken);
                 request.setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, download.getFileSystemPath());
+                request.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI);
                 request.setVisibleInDownloadsUi(false);
 
                 download.setDownloadId(downloadManager.enqueue(request));

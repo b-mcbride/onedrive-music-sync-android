@@ -128,13 +128,7 @@ public class MainActivity extends AppCompatActivity {
                 int deletes = Integer.parseInt(statuses[1]);
                 int failures = Integer.parseInt(statuses[2]);
 
-                if (queuedDownloads == 0 && deletes == 0) {
-                    syncMusicStatusText.setText("Your collection is already in sync");
-                } else {
-                    syncMusicStatusText.setText("Complete. Queuing downloads." + System.getProperty("line.separator") + "Found " + queuedDownloads + " new song(s). Found " + deletes + " deletion(s). Total failures: " + failures);
-                }
-
-                MusicSyncIntentService.startActionDownloadAndDelete(getActivity(), authResult.getAccessToken());
+                syncMusicStatusText.setText("Found " + queuedDownloads + " song(s). Found " + deletes + " deletion(s). Total failures: " + failures);
             }
         };
 
