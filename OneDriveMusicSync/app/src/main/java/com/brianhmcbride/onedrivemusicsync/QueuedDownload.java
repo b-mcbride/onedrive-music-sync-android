@@ -10,8 +10,9 @@ public class QueuedDownload {
     private long downloadId;
     private Uri downloadUri;
     private String fileSystemPath;
+    private boolean isDownloadComplete;
 
-    public QueuedDownload(Uri downloadUri, String fileSystemPath){
+    public QueuedDownload(Uri downloadUri, String fileSystemPath) {
         setDownloadUri(downloadUri);
         setFileSystemPath(fileSystemPath);
     }
@@ -38,5 +39,13 @@ public class QueuedDownload {
 
     public void setDownloadId(long downloadId) {
         this.downloadId = downloadId;
+    }
+
+    public boolean getIsDownloadComplete() {
+        return this.isDownloadComplete;
+    }
+
+    public void setIsDownloadComplete(boolean isDownloadComplete) {
+        this.isDownloadComplete = isDownloadComplete;
     }
 }

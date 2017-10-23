@@ -39,16 +39,18 @@ import com.microsoft.identity.client.*;
 
 public class MainActivity extends AppCompatActivity {
     public static final String TAG = MainActivity.class.getSimpleName();
-    static final String CLIENT_ID = "8fbb52c6-a9eb-41a1-9933-4be38cdefbd3";
-    static final String SCOPES[] = {"https://graph.microsoft.com/User.Read", "https://graph.microsoft.com/Files.Read"};
+    public static final String CLIENT_ID = "8fbb52c6-a9eb-41a1-9933-4be38cdefbd3";
+    public static final String SCOPES[] = {"https://graph.microsoft.com/User.Read", "https://graph.microsoft.com/Files.Read"};
 
     Button signInButton;
     Button signOutButton;
     Button syncMusicButton;
     TextView syncMusicStatusText;
     TextView welcomeText;
-    PublicClientApplication MSALClientApplication;
-    AuthenticationResult authResult;
+
+
+    public static PublicClientApplication MSALClientApplication;
+    public static AuthenticationResult authResult;
 
     private BroadcastReceiver syncCompleteBroadcastReceiver;
     private BroadcastReceiver syncPartialBroadcastReceiver;
@@ -110,7 +112,7 @@ public class MainActivity extends AppCompatActivity {
                     syncMusicStatusText.setText("Complete. Queuing downloads." + System.getProperty("line.separator") + "Found " + queuedDownloads + " new song(s). Found " + deletes + " deletion(s). Total failures: " + failures);
                 }
 
-                MusicSyncIntentService.startActionDownloadAndDelete(getActivity(), authResult.getAccessToken());
+                MusicSyncIntentService.startActionDownloadAndDelete(getActivity());
             }
         };
 
@@ -288,7 +290,7 @@ public class MainActivity extends AppCompatActivity {
         syncMusicStatusText.setVisibility(View.VISIBLE);
         syncMusicStatusText.setText("Processing...");
 
-        MusicSyncIntentService.startActionSync(getActivity(), authResult.getAccessToken());
+        MusicSyncIntentService.startActionSync(getActivity());
     }
 
     /* Clears a user's tokens from the cache.

@@ -2,16 +2,21 @@ package com.brianhmcbride.onedrivemusicsync;
 
 import android.app.DownloadManager;
 import android.app.IntentService;
+import android.content.BroadcastReceiver;
 import android.content.Intent;
 import android.content.Context;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.support.annotation.MainThread;
 import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
+import android.view.View;
 import android.widget.Toast;
 
 import com.android.volley.AuthFailureError;
@@ -22,6 +27,13 @@ import com.android.volley.Response;
 import com.android.volley.VolleyError;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
+import com.microsoft.identity.client.AuthenticationCallback;
+import com.microsoft.identity.client.AuthenticationResult;
+import com.microsoft.identity.client.MsalClientException;
+import com.microsoft.identity.client.MsalException;
+import com.microsoft.identity.client.MsalServiceException;
+import com.microsoft.identity.client.MsalUiRequiredException;
+import com.microsoft.identity.client.User;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -30,6 +42,7 @@ import java.io.File;
 import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -46,11 +59,11 @@ public class MusicSyncIntentService extends IntentService {
     public static final String BROADCAST_SYNC_PARTIAL_ACTION = "com.brianhmcbride.onedrivemusicsync.PARTIAL";
     public static final String EXTENDED_DATA_STATUS = "com.brianhmcbride.onedrivemusicsync.STATUS";
 
+    static final int MAX_DOWNLOADS_TO_QUEUE = 100;
     static final String WAKE_LOCK_TAG = "com.brianhmcbride.onedrivemusicsync.wakelock";
     static final String ODATA_NEXT_LINK = "@odata.nextLink";
     static final String ACTION_SYNC = "com.brianhmcbride.onedrivemusicsync.action.SYNC";
     static final String ACTION_DOWNLOAD_AND_DELETE = "com.brianhmcbride.onedrivemusicsync.action.DOWNLOAD_AND_DELETE";
-    static final String EXTRA_BEARER_TOKEN = "com.brianhmcbride.onedrivemusicsync.extra.BEARER_TOKEN";
     static final String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/root:/Music:/delta"; //"https://graph.microsoft.com/v1.0/me/drive/root:/OneDriveMusicSync:/delta";
     static final String PATH_REPLACE = "/drive/root:/Music/"; //"/drive/root:/OneDriveMusicSync/";
     static final String MUSIC_STORAGE_FOLDER = "OneDriveMusicSync";
@@ -60,7 +73,7 @@ public class MusicSyncIntentService extends IntentService {
     static ArrayList<QueuedDownload> downloads;
     static ArrayList<QueuedDeletion> deletions;
 
-    String bearerToken;
+    private BroadcastReceiver onDownloadFinishReceiver;
 
     public MusicSyncIntentService() {
         super("MusicSyncIntentService");
@@ -72,17 +85,15 @@ public class MusicSyncIntentService extends IntentService {
      *
      * @see IntentService
      */
-    public static void startActionSync(Context context, String bearerToken) {
+    public static void startActionSync(Context context) {
         Intent intent = new Intent(context, MusicSyncIntentService.class);
         intent.setAction(ACTION_SYNC);
-        intent.putExtra(EXTRA_BEARER_TOKEN, bearerToken);
         context.startService(intent);
     }
 
-    public static void startActionDownloadAndDelete(Context context, String bearerToken) {
+    public static void startActionDownloadAndDelete(Context context) {
         Intent intent = new Intent(context, MusicSyncIntentService.class);
         intent.setAction(ACTION_DOWNLOAD_AND_DELETE);
-        intent.putExtra(EXTRA_BEARER_TOKEN, bearerToken);
         context.startService(intent);
     }
 
@@ -91,8 +102,6 @@ public class MusicSyncIntentService extends IntentService {
         if (intent != null) {
             final String action = intent.getAction();
             if (ACTION_SYNC.equals(action)) {
-                bearerToken = intent.getStringExtra(EXTRA_BEARER_TOKEN);
-
                 SharedPreferences settings = getSharedPreferences(PREFS_NAME, 0);
                 String deltaLink = settings.getString(ODATA_DELTA_LINK, null);
 
@@ -108,7 +117,6 @@ public class MusicSyncIntentService extends IntentService {
             }
 
             if (ACTION_DOWNLOAD_AND_DELETE.equals(action)) {
-                bearerToken = intent.getStringExtra(EXTRA_BEARER_TOKEN);
 
                 PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
                 PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG);
@@ -121,9 +129,71 @@ public class MusicSyncIntentService extends IntentService {
                 }
 
                 if (downloads.size() > 0) {
-                    QueueDownloads();
+
+                    registerReceiver(onDownloadFinishReceiver = new BroadcastReceiver() {
+                        @Override
+                        public void onReceive(Context context, Intent i) {
+                            Log.d(TAG, "Download finished intent received");
+                            long downloadId = i.getExtras().getLong(DownloadManager.EXTRA_DOWNLOAD_ID);
+                            for (QueuedDownload download : downloads) {
+                                if (download.getDownloadId() == downloadId) {
+                                    download.setIsDownloadComplete(true);
+                                    break;
+                                }
+                            }
+                        }
+                    }, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
+
+
+                    while (getNumberOfDownloadsToBeQueued() > 0) {
+
+                        try {
+                            Thread.sleep(5000);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to sleep", e);
+                        }
+
+                        if (getNumberOfPendingDownloads() == 0) {
+                            try {
+                                List<User> users = MainActivity.MSALClientApplication.getUsers();
+
+                                MainActivity.MSALClientApplication.acquireTokenSilentAsync(MainActivity.SCOPES, users.get(0), "", true, new AuthenticationCallback() {
+                                    @Override
+                                    public void onSuccess(AuthenticationResult authenticationResult) {
+                                        Log.d(TAG, "Successfully authenticated");
+
+                                        MainActivity.authResult = authenticationResult;
+                                        QueueDownloads();
+                                    }
+
+                                    @Override
+                                    public void onError(MsalException exception) {
+                                        Log.d(TAG, "Authentication failed: " + exception.toString());
+
+                                        if (exception instanceof MsalClientException) {
+                                            /* Exception inside MSAL, more info inside MsalError.java */
+                                        } else if (exception instanceof MsalServiceException) {
+                                            /* Exception when communicating with the STS, likely config issue */
+                                        } else if (exception instanceof MsalUiRequiredException) {
+                                            /* Tokens expired or no session, retry with interactive */
+                                        }
+                                    }
+
+                                    @Override
+                                    public void onCancel() {
+                                        Log.d(TAG, "User cancelled login.");
+                                    }
+                                });
+                            } catch (MsalClientException e) {
+                                Log.d(TAG, "MSAL Exception Generated while getting users.", e);
+                            } catch (IndexOutOfBoundsException e) {
+                                Log.d(TAG, "User at this position does not exist.", e);
+                            }
+                        }
+                    }
 
                     showToast("Music files queued to download");
+                    unregisterReceiver(onDownloadFinishReceiver);
                 }
 
                 wakeLock.release();
@@ -132,16 +202,39 @@ public class MusicSyncIntentService extends IntentService {
     }
 
     private void QueueDownloads() {
-        DownloadManager downloadManager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-        for (QueuedDownload download : downloads) {
-            try {
-                DownloadManager.Request request = new DownloadManager.Request(download.getDownloadUri());
-                request.addRequestHeader("Authorization", "Bearer " + bearerToken);
-                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, download.getFileSystemPath());
-                request.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI);
-                request.setVisibleInDownloadsUi(false);
+        int downloadsRemaining = 0;
+        int numberOfDownloadsToQueue = 0;
 
-                download.setDownloadId(downloadManager.enqueue(request));
+        for (QueuedDownload download: downloads) {
+         if(download.getDownloadId() == 0){
+             downloadsRemaining++;
+         }
+        }
+
+        if(downloadsRemaining > MAX_DOWNLOADS_TO_QUEUE){
+            numberOfDownloadsToQueue = MAX_DOWNLOADS_TO_QUEUE;
+        } else {
+            numberOfDownloadsToQueue = downloadsRemaining;
+        }
+
+        DownloadManager downloadManager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+        int count = 0;
+        for (QueuedDownload download : downloads) {
+            if(count == numberOfDownloadsToQueue){
+                break;
+            }
+
+            try {
+                if(download.getDownloadId() == 0) {
+                    DownloadManager.Request request = new DownloadManager.Request(download.getDownloadUri());
+                    request.addRequestHeader("Authorization", "Bearer " + MainActivity.authResult.getAccessToken());
+                    request.setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, download.getFileSystemPath());
+                    request.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI);
+                    request.setVisibleInDownloadsUi(false);
+
+                    download.setDownloadId(downloadManager.enqueue(request));
+                    count++;
+                }
             } catch (Exception e) {
                 Log.e(TAG, "Failed to queue download: " + download.getFileSystemPath(), e);
             }
@@ -255,7 +348,7 @@ public class MusicSyncIntentService extends IntentService {
             @Override
             public Map<String, String> getHeaders() throws AuthFailureError {
                 Map<String, String> headers = new HashMap<>();
-                headers.put("Authorization", "Bearer " + bearerToken);
+                headers.put("Authorization", "Bearer " + MainActivity.authResult.getAccessToken());
                 return headers;
             }
         };
@@ -276,7 +369,7 @@ public class MusicSyncIntentService extends IntentService {
         LocalBroadcastManager.getInstance(this).sendBroadcast(localIntent);
     }
 
-    protected void showToast(final String msg){
+    protected void showToast(final String msg) {
         //gets the main thread
         Handler handler = new Handler(Looper.getMainLooper());
         handler.post(new Runnable() {
@@ -286,5 +379,28 @@ public class MusicSyncIntentService extends IntentService {
                 Toast.makeText(getApplicationContext(), msg, Toast.LENGTH_SHORT).show();
             }
         });
+    }
+
+    private int getNumberOfPendingDownloads() {
+        int count = 0;
+        for (QueuedDownload download : downloads) {
+            if (download.getDownloadId() != 0 && download.getIsDownloadComplete() == false) {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private int getNumberOfDownloadsToBeQueued() {
+        int count = 0;
+
+        for (QueuedDownload download : downloads) {
+            if (download.getDownloadId() == 0) {
+                count++;
+            }
+        }
+
+        return count;
     }
 }
