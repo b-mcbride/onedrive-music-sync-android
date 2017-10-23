@@ -287,7 +287,7 @@ public class MusicSyncIntentService extends IntentService {
                                             String name = driveItem.getString("name");
                                             boolean isDeletedFile = driveItem.has("deleted");
 
-                                            if (driveItem.getString("name").contains(".mp3")) {
+                                            if (driveItem.getString("name").contains(".m4a") || driveItem.getString("name").contains("mp3")) {
                                                 String parentPath = driveItem.getJSONObject("parentReference").getString("path").replace(PATH_REPLACE, "");
                                                 String filePath = String.format("%s/%s/%s", MUSIC_STORAGE_FOLDER, parentPath, name);
                                                 filePath = URLDecoder.decode(filePath, "UTF-8");
