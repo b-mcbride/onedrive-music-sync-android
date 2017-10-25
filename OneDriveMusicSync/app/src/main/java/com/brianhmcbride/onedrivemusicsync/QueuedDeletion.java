@@ -1,21 +1,17 @@
 package com.brianhmcbride.onedrivemusicsync;
 
-/**
- * Created by brian on 10/22/2017.
- */
-
-public class QueuedDeletion {
+class QueuedDeletion {
     private String fileSystemPath;
 
-    public QueuedDeletion(String fileSystemPath){
+    QueuedDeletion(String fileSystemPath){
         setFileSystemPath(fileSystemPath);
     }
 
-    public String getFileSystemPath() {
+    String getFileSystemPath() {
         return this.fileSystemPath;
     }
 
-    public void setFileSystemPath(String fileSystemPath) {
+    private void setFileSystemPath(String fileSystemPath) {
         this.fileSystemPath = fileSystemPath;
     }
 }
