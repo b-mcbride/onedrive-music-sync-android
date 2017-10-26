@@ -7,10 +7,12 @@ class QueuedDownload {
     private Uri downloadUri;
     private String fileSystemPath;
     private boolean isDownloadComplete;
+    private boolean isMarkedForDownload;
 
     QueuedDownload(Uri downloadUri, String fileSystemPath) {
         setDownloadUri(downloadUri);
         setFileSystemPath(fileSystemPath);
+        setIsMarkedForDownload(false);
     }
 
     Uri getDownloadUri() {
@@ -43,5 +45,13 @@ class QueuedDownload {
 
     void setIsDownloadComplete(boolean isDownloadComplete) {
         this.isDownloadComplete = isDownloadComplete;
+    }
+
+    boolean getIsMarkedForDownload() {
+        return this.isMarkedForDownload;
+    }
+
+    void setIsMarkedForDownload(boolean isMarkedForDownload) {
+        this.isMarkedForDownload = isMarkedForDownload;
     }
 }

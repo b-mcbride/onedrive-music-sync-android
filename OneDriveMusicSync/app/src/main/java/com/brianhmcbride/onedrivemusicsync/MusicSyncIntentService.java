@@ -1,5 +1,6 @@
 package com.brianhmcbride.onedrivemusicsync;
 
+import android.annotation.SuppressLint;
 import android.app.DownloadManager;
 import android.app.IntentService;
 import android.content.BroadcastReceiver;
@@ -49,26 +50,27 @@ public class MusicSyncIntentService extends IntentService {
     public static final String BROADCAST_SYNC_COMPLETE_ACTION = "com.brianhmcbride.onedrivemusicsync.COMPLETE";
     public static final String BROADCAST_SYNC_PARTIAL_ACTION = "com.brianhmcbride.onedrivemusicsync.PARTIAL";
     public static final String EXTENDED_DATA_STATUS = "com.brianhmcbride.onedrivemusicsync.STATUS";
+    public static final String BROADCAST_CLEAR_SYNCED_COLLECTION_COMPLETE_ACTION = "com.brianhmcbride.onedrivemusicsync.CLEAR_SYNCED_COLLECTION_COMPLETE";
 
     static final String WAKE_LOCK_TAG = "com.brianhmcbride.onedrivemusicsync.wakelock";
     static final String ODATA_NEXT_LINK = "@odata.nextLink";
     static final String ACTION_SYNC = "com.brianhmcbride.onedrivemusicsync.action.SYNC";
     static final String ACTION_DOWNLOAD_AND_DELETE = "com.brianhmcbride.onedrivemusicsync.action.DOWNLOAD_AND_DELETE";
+    static final String ACTION_CLEAR_SYNCED_COLLECTION = "com.brianhmcbride.onedrivemusicsync.action.CLEAR_SYNCED_COLLECTION";
     static final String MUSIC_STORAGE_FOLDER = "OneDriveMusicSync";
+    static final int TIMEOUT = 5000;
 
     /* DEVELOPMENT*/
-//    static final String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/root:/OneDriveMusicSync:/delta";
-//    static final String PATH_REPLACE = "/drive/root:/OneDriveMusicSync/";
-//    static final int MAX_DOWNLOADS_TO_QUEUE = 1;
-//    static final int TIMEOUT = 15000;
-//    static final int ALLOWED_NETWORK_TYPES = DownloadManager.Request.NETWORK_WIFI | DownloadManager.Request.NETWORK_MOBILE;
+    static final String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/root:/OneDriveMusicSync:/delta";
+    static final String PATH_REPLACE = "/drive/root:/OneDriveMusicSync/";
+    static final int MAX_DOWNLOADS_TO_QUEUE = 1;
+    static final int ALLOWED_NETWORK_TYPES = DownloadManager.Request.NETWORK_WIFI | DownloadManager.Request.NETWORK_MOBILE;
 
     /*DEPLOYMENT*/
-    static final String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/root:/Music:/delta";
-    static final String PATH_REPLACE = "/drive/root:/Music/";
-    static final int MAX_DOWNLOADS_TO_QUEUE = 100;
-    static final int TIMEOUT = 5000;
-    static final int ALLOWED_NETWORK_TYPES = DownloadManager.Request.NETWORK_WIFI;
+//    static final String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/root:/Music:/delta";
+//    static final String PATH_REPLACE = "/drive/root:/Music/";
+//    static final int MAX_DOWNLOADS_TO_QUEUE = 100;
+//    static final int ALLOWED_NETWORK_TYPES = DownloadManager.Request.NETWORK_WIFI;
 
     int failures = 0;
 
@@ -88,6 +90,12 @@ public class MusicSyncIntentService extends IntentService {
     public static void startActionDownloadAndDelete(Context context) {
         Intent intent = new Intent(context, MusicSyncIntentService.class);
         intent.setAction(ACTION_DOWNLOAD_AND_DELETE);
+        context.startService(intent);
+    }
+
+    public static void startActionClearSyncedCollection(Context context) {
+        Intent intent = new Intent(context, MusicSyncIntentService.class);
+        intent.setAction(ACTION_CLEAR_SYNCED_COLLECTION);
         context.startService(intent);
     }
 
@@ -146,12 +154,13 @@ public class MusicSyncIntentService extends IntentService {
                             Log.e(TAG, "Failed to sleep", e);
                         }
 
-                        if (getNumberOfPendingDownloads() == 0) {
+                        if (getNumberOfMarkedDownloads() == 0 && getNumberOfPendingDownloads() == 0) {
+                            markDownloads();
                             AuthenticationManager.getInstance().refreshToken(new AuthenticationCallback() {
                                 @Override
                                 public void onSuccess(AuthenticationResult authenticationResult) {
                                     Log.d(TAG, "Successfully authenticated");
-                                    QueueDownloads();
+                                    SendMarkedDownloadsToDownloadManager();
                                 }
 
                                 @Override
@@ -160,7 +169,8 @@ public class MusicSyncIntentService extends IntentService {
                                 }
 
                                 @Override
-                                public void onCancel(){}
+                                public void onCancel() {
+                                }
                             });
                         }
                     }
@@ -171,13 +181,45 @@ public class MusicSyncIntentService extends IntentService {
 
                 wakeLock.release();
             }
+
+            if (ACTION_CLEAR_SYNCED_COLLECTION.equals(action)) {
+                PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+                PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG);
+
+                wakeLock.acquire();
+                File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), MUSIC_STORAGE_FOLDER);
+
+                if (file.exists() && file.isDirectory()) {
+                    deleteRecursive(file);
+
+                    DeltaLinkManager.getInstance().clearDeltaLink();
+
+                    Intent localIntent = new Intent(BROADCAST_CLEAR_SYNCED_COLLECTION_COMPLETE_ACTION);
+                    LocalBroadcastManager.getInstance(this).sendBroadcast(localIntent);
+                } else {
+                    showToast("Failed to delete music storage folder");
+                }
+                wakeLock.release();
+            }
         }
     }
 
-    private void QueueDownloads() {
+    private void deleteRecursive(File fileOrDirectory) {
+        if (fileOrDirectory.isDirectory())
+            for (File child : fileOrDirectory.listFiles())
+                deleteRecursive(child);
+
+        boolean isSuccess = fileOrDirectory.delete();
+
+        if(!isSuccess){
+            showToast(String.format("Failure deleting %s", fileOrDirectory.getName()));
+        }
+    }
+
+    private void markDownloads() {
         int downloadsRemaining = 0;
         for (QueuedDownload download : downloads) {
-            if (download.getDownloadId() == 0) {
+            if (download.getDownloadId() == 0 && !download.getIsMarkedForDownload()) {
                 downloadsRemaining++;
             }
         }
@@ -189,26 +231,36 @@ public class MusicSyncIntentService extends IntentService {
             numberOfDownloadsToQueue = downloadsRemaining;
         }
 
-        DownloadManager downloadManager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
         int count = 0;
         for (QueuedDownload download : downloads) {
             if (count == numberOfDownloadsToQueue) {
                 break;
             }
 
+            if (download.getDownloadId() == 0 && !download.getIsMarkedForDownload()) {
+                download.setIsMarkedForDownload(true);
+                count++;
+            }
+        }
+    }
+
+    private void SendMarkedDownloadsToDownloadManager() {
+        DownloadManager downloadManager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+
+        for (QueuedDownload download : downloads) {
             try {
-                if (download.getDownloadId() == 0) {
+                if (download.getDownloadId() == 0 && download.getIsMarkedForDownload()) {
                     DownloadManager.Request request = new DownloadManager.Request(download.getDownloadUri());
-                    request.addRequestHeader("Authorization", "Bearer " + AuthenticationManager.getInstance().getAccessToken());
+                    request.addRequestHeader("Authorization", String.format("Bearer %s", AuthenticationManager.getInstance().getAccessToken()));
                     request.setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, download.getFileSystemPath());
                     request.setAllowedNetworkTypes(ALLOWED_NETWORK_TYPES);
                     request.setVisibleInDownloadsUi(false);
 
                     download.setDownloadId(downloadManager.enqueue(request));
-                    count++;
+                    download.setIsMarkedForDownload(false);
                 }
             } catch (Exception e) {
-                String failureMessage = "Failed to queue download: " + download.getFileSystemPath();
+                String failureMessage = String.format("Failed to queue download: %s", download.getFileSystemPath());
                 Log.e(TAG, failureMessage, e);
                 showToast(failureMessage);
             }
@@ -223,12 +275,12 @@ public class MusicSyncIntentService extends IntentService {
                 if (file.exists() && file.isFile()) {
                     boolean isDeleteSuccess = file.delete();
 
-                    if(!isDeleteSuccess){
-                        showToast("Failed to delete file: " + deletion.getFileSystemPath());
+                    if (!isDeleteSuccess) {
+                        showToast(String.format("Failed to delete file: %s", deletion.getFileSystemPath()));
                     }
                 }
             } catch (Exception e) {
-                String failureMessage = "Failed to delete file: " + deletion.getFileSystemPath();
+                String failureMessage = String.format("Failed to delete file: %s", deletion.getFileSystemPath());
                 Log.e(TAG, failureMessage, e);
                 showToast(failureMessage);
             }
@@ -283,7 +335,7 @@ public class MusicSyncIntentService extends IntentService {
                                             }
                                         }
                                     } catch (Exception e) {
-                                        String failureMessage = "Failure working with driveItem. " + driveItemArray.getJSONObject(i).toString();
+                                        String failureMessage = String.format("Failure working with driveItem. %s", driveItemArray.getJSONObject(i).toString());
                                         Log.e(TAG, failureMessage, e);
                                         failures++;
                                         showToast("Music sync failure on driveItem");
@@ -292,7 +344,7 @@ public class MusicSyncIntentService extends IntentService {
                             } catch (Exception e) {
                                 String failureMessage = "Unrecoverable failure.";
                                 Log.e(TAG, failureMessage, e);
-                                showToast("Unknown music sync failure:" + e.getMessage());
+                                showToast(String.format("Unknown music sync failure:%s", e.getMessage()));
                             }
                         }
 
@@ -323,19 +375,19 @@ public class MusicSyncIntentService extends IntentService {
                 new Response.ErrorListener() {
                     @Override
                     public void onErrorResponse(VolleyError error) {
-                        Log.d(TAG, "Error: " + error.toString());
+                        Log.d(TAG, String.format("Error: %s", error.toString()));
                         showToast("Failure syncing music. Review logs");
                     }
                 }) {
             @Override
             public Map<String, String> getHeaders() throws AuthFailureError {
                 Map<String, String> headers = new HashMap<>();
-                headers.put("Authorization", "Bearer " + AuthenticationManager.getInstance().getAccessToken());
+                headers.put("Authorization", String.format("Bearer %s", AuthenticationManager.getInstance().getAccessToken()));
                 return headers;
             }
         };
 
-        Log.d(MainActivity.TAG, "Adding HTTP GET to Queue, Request: " + request.toString());
+        Log.d(MainActivity.TAG, String.format("Adding HTTP GET to Queue, Request: %s", request.toString()));
 
         request.setRetryPolicy(new DefaultRetryPolicy(
                 3000,
@@ -346,7 +398,7 @@ public class MusicSyncIntentService extends IntentService {
     }
 
     private void broadcastStatus(String action) {
-        String status = downloads.size() + "|" + deletions.size() + "|" + failures;
+        @SuppressLint("DefaultLocale") String status = String.format("%d|%d|%d", downloads.size(), deletions.size(), failures);
         Intent localIntent = new Intent(action).putExtra(EXTENDED_DATA_STATUS, status);
         LocalBroadcastManager.getInstance(this).sendBroadcast(localIntent);
     }
@@ -366,6 +418,17 @@ public class MusicSyncIntentService extends IntentService {
         int count = 0;
         for (QueuedDownload download : downloads) {
             if (download.getDownloadId() != 0 && !download.getIsDownloadComplete()) {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private int getNumberOfMarkedDownloads() {
+        int count = 0;
+        for (QueuedDownload download : downloads) {
+            if (download.getIsMarkedForDownload()) {
                 count++;
             }
         }

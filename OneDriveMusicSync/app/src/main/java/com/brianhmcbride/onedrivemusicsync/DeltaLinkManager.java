@@ -38,4 +38,11 @@ class DeltaLinkManager {
         editor.putString(ODATA_DELTA_LINK, deltaLink);
         editor.apply();
     }
+
+    void clearDeltaLink(){
+        SharedPreferences settings = App.get().getSharedPreferences(PREFS_NAME, 0);
+        SharedPreferences.Editor editor = settings.edit();
+        editor.remove(ODATA_DELTA_LINK);
+        editor.apply();
+    }
 }

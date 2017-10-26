@@ -60,6 +60,17 @@
         android:orientation="vertical" >
 
         <Button
+            android:text="Clear synced collection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="15dp"
+            android:textColor="#FFFFFF"
+            android:background="#00a1f1"
+            android:textAllCaps="false"
+            android:id="@+id/clearSyncedCollection"
+            android:visibility="invisible" />
+
+        <Button
             android:text="Sign Out"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

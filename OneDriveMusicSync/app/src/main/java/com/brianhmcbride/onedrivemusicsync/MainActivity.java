@@ -1,8 +1,10 @@
 package com.brianhmcbride.onedrivemusicsync;
 
 import android.Manifest;
+import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.os.Handler;
@@ -28,9 +30,11 @@ public class MainActivity extends AppCompatActivity {
     Button signInButton;
     Button signOutButton;
     Button syncMusicButton;
+    Button clearSyncedCollectionButton;
     TextView syncMusicStatusText;
     TextView welcomeText;
 
+    private BroadcastReceiver clearSyncedCollectonCompleteBroadcastReceiver;
     private BroadcastReceiver syncCompleteBroadcastReceiver;
     private BroadcastReceiver syncPartialBroadcastReceiver;
 
@@ -40,6 +44,7 @@ public class MainActivity extends AppCompatActivity {
 
         LocalBroadcastManager.getInstance(this).unregisterReceiver(syncCompleteBroadcastReceiver);
         LocalBroadcastManager.getInstance(this).unregisterReceiver(syncPartialBroadcastReceiver);
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(clearSyncedCollectonCompleteBroadcastReceiver);
     }
 
     @Override
@@ -71,6 +76,13 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        clearSyncedCollectionButton = (Button) findViewById(R.id.clearSyncedCollection);
+        clearSyncedCollectionButton.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                clearSyncedCollectionClicked();
+            }
+        });
+
         syncMusicStatusText = (TextView) findViewById(R.id.syncMusicStatus);
         welcomeText = (TextView) findViewById(R.id.welcome);
 
@@ -95,6 +107,7 @@ public class MainActivity extends AppCompatActivity {
                             "Sync failures: " + failures);
                 }
 
+                clearSyncedCollectionButton.setVisibility(View.VISIBLE);
                 MusicSyncIntentService.startActionDownloadAndDelete(getActivity());
             }
         };
@@ -121,6 +134,18 @@ public class MainActivity extends AppCompatActivity {
         };
 
         LocalBroadcastManager.getInstance(this).registerReceiver(syncPartialBroadcastReceiver, musicSyncPartialIntentFilter);
+
+        IntentFilter musicSyncClearSyncedCollectionCompleteIntentFilter = new IntentFilter(MusicSyncIntentService.BROADCAST_CLEAR_SYNCED_COLLECTION_COMPLETE_ACTION);
+
+        clearSyncedCollectonCompleteBroadcastReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                clearSyncedCollectionButton.setVisibility(View.GONE);
+                syncMusicStatusText.setText(getString(R.string.initial_sync_message));
+            }
+        };
+
+        LocalBroadcastManager.getInstance(this).registerReceiver(clearSyncedCollectonCompleteBroadcastReceiver, musicSyncClearSyncedCollectionCompleteIntentFilter);
 
         if (AuthenticationManager.getInstance().getAuthenticatedUserCount() == 1) {
             AuthenticationManager.getInstance().acquireTokenSilent(getAuthSilentCallback());
@@ -196,6 +221,7 @@ public class MainActivity extends AppCompatActivity {
         if (deltaLink == null) {
             syncMusicStatusText.setText(getString(R.string.initial_sync_message));
         } else {
+            clearSyncedCollectionButton.setVisibility(View.VISIBLE);
             syncMusicStatusText.setText("");
         }
 
@@ -208,6 +234,7 @@ public class MainActivity extends AppCompatActivity {
         syncMusicButton.setVisibility(View.GONE);
         syncMusicStatusText.setVisibility(View.GONE);
         signOutButton.setVisibility(View.GONE);
+        clearSyncedCollectionButton.setVisibility(View.GONE);
         welcomeText.setVisibility(View.GONE);
     }
 
@@ -231,6 +258,27 @@ public class MainActivity extends AppCompatActivity {
         syncMusicStatusText.setText(getString(R.string.processing));
 
         MusicSyncIntentService.startActionSync(getActivity());
+    }
+
+    private void clearSyncedCollectionClicked() {
+        AlertDialog.Builder alertDialogBuilder = new AlertDialog.Builder(this);
+        alertDialogBuilder.setMessage("This will erase all music off your device. Are you sure?");
+        alertDialogBuilder.setPositiveButton("yes", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface arg0, int arg1) {
+                MusicSyncIntentService.startActionClearSyncedCollection(getActivity());
+            }
+        });
+
+        alertDialogBuilder.setNegativeButton("No", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                finish();
+            }
+        });
+
+        AlertDialog alertDialog = alertDialogBuilder.create();
+        alertDialog.show();
     }
 
     /* Clears a user's tokens from the cache.
