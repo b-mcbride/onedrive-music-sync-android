@@ -4,9 +4,12 @@ import android.annotation.SuppressLint;
 import android.app.DownloadManager;
 import android.app.IntentService;
 import android.content.BroadcastReceiver;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.Context;
 import android.content.IntentFilter;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
 import android.os.Environment;
 import android.os.Handler;
@@ -24,6 +27,8 @@ import com.android.volley.Response;
 import com.android.volley.VolleyError;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
+import com.brianhmcbride.onedrivemusicsync.data.MusicSyncContract;
+import com.brianhmcbride.onedrivemusicsync.data.MusicSyncDbHelper;
 import com.microsoft.identity.client.AuthenticationCallback;
 import com.microsoft.identity.client.AuthenticationResult;
 import com.microsoft.identity.client.MsalException;
@@ -191,14 +196,18 @@ public class MusicSyncIntentService extends IntentService {
 
                 if (file.exists() && file.isDirectory()) {
                     deleteRecursive(file);
-
-                    DeltaLinkManager.getInstance().clearDeltaLink();
-
-                    Intent localIntent = new Intent(BROADCAST_CLEAR_SYNCED_COLLECTION_COMPLETE_ACTION);
-                    LocalBroadcastManager.getInstance(this).sendBroadcast(localIntent);
-                } else {
-                    showToast("Failed to delete music storage folder");
                 }
+
+                DeltaLinkManager.getInstance().clearDeltaLink();
+
+                MusicSyncDbHelper dbHelper = new MusicSyncDbHelper(App.get());
+                SQLiteDatabase dbWriter = dbHelper.getWritableDatabase();
+                dbWriter.execSQL(MusicSyncContract.SQL_DELETE_ENTRIES_DRIVE_ITEM);
+
+                Intent localIntent = new Intent(BROADCAST_CLEAR_SYNCED_COLLECTION_COMPLETE_ACTION);
+                LocalBroadcastManager.getInstance(this).sendBroadcast(localIntent);
+                dbHelper.close();
+
                 wakeLock.release();
             }
         }
@@ -211,7 +220,7 @@ public class MusicSyncIntentService extends IntentService {
 
         boolean isSuccess = fileOrDirectory.delete();
 
-        if(!isSuccess){
+        if (!isSuccess) {
             showToast(String.format("Failure deleting %s", fileOrDirectory.getName()));
         }
     }
@@ -307,7 +316,12 @@ public class MusicSyncIntentService extends IntentService {
                     @Override
                     public void onResponse(JSONObject response) {
                         if (response.has("value")) {
+                            MusicSyncDbHelper dbHelper = null;
                             try {
+                                dbHelper = new MusicSyncDbHelper(App.get());
+                                SQLiteDatabase dbReader = dbHelper.getReadableDatabase();
+                                SQLiteDatabase dbWriter = dbHelper.getWritableDatabase();
+
                                 JSONArray driveItemArray = response.getJSONArray("value");
 
                                 for (int i = 0; i < driveItemArray.length(); i++) {
@@ -320,17 +334,55 @@ public class MusicSyncIntentService extends IntentService {
                                             boolean isDeletedFile = driveItem.has("deleted");
 
                                             if (driveItem.getString("name").contains(".m4a") || driveItem.getString("name").contains("mp3")) {
+                                                String[] projection = {MusicSyncContract.DriveItem._ID, MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID};
+                                                String selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID);
+                                                String[] selectionArgs = {id};
+
+                                                Cursor cursor = dbReader.query(
+                                                        MusicSyncContract.DriveItem.TABLE_NAME,
+                                                        projection,
+                                                        selection,
+                                                        selectionArgs,
+                                                        null,
+                                                        null,
+                                                        null
+                                                );
+
+                                                boolean driveItemExistsInDatabase = cursor.getCount() > 0;
+                                                cursor.close();
+
                                                 String parentPath = driveItem.getJSONObject("parentReference").getString("path").replace(PATH_REPLACE, "");
                                                 String filePath = String.format("%s/%s/%s", MUSIC_STORAGE_FOLDER, parentPath, name);
                                                 filePath = URLDecoder.decode(filePath, "UTF-8");
 
                                                 if (isDeletedFile) {
+                                                    if (driveItemExistsInDatabase) {
+                                                        ContentValues values = new ContentValues();
+                                                        values.put(MusicSyncContract.DriveItem.COLUMN_NAME_IS_MARKED_FOR_DELETION, true);
+
+                                                        dbWriter.update(MusicSyncContract.DriveItem.TABLE_NAME, values, selection, selectionArgs);
+                                                    }
+
+                                                    //In the future this goes away
                                                     deletions.add(new QueuedDeletion(filePath));
                                                 } else {
-                                                    String downloadContentPath = String.format("https://graph.microsoft.com/v1.0/me/drive/items/%s/content", id);
-                                                    Uri downloadContentUri = Uri.parse(downloadContentPath);
+                                                    if (!driveItemExistsInDatabase) {
 
-                                                    downloads.add(new QueuedDownload(downloadContentUri, filePath));
+                                                        ContentValues values = new ContentValues();
+                                                        values.put(MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID, id);
+                                                        values.put(MusicSyncContract.DriveItem.COLUMN_NAME_IS_MARKED_FOR_DELETION, false);
+                                                        values.put(MusicSyncContract.DriveItem.COLUMN_NAME_FILESYSTEM_PATH, filePath);
+
+                                                        dbWriter.insert(MusicSyncContract.DriveItem.TABLE_NAME, null, values);
+
+                                                        //In the future this goes away
+                                                        String downloadContentPath = String.format("https://graph.microsoft.com/v1.0/me/drive/items/%s/content", id);
+                                                        Uri downloadContentUri = Uri.parse(downloadContentPath);
+
+                                                        downloads.add(new QueuedDownload(downloadContentUri, filePath));
+                                                    } else {
+                                                        //Update scenario TBD
+                                                    }
                                                 }
                                             }
                                         }
@@ -345,6 +397,10 @@ public class MusicSyncIntentService extends IntentService {
                                 String failureMessage = "Unrecoverable failure.";
                                 Log.e(TAG, failureMessage, e);
                                 showToast(String.format("Unknown music sync failure:%s", e.getMessage()));
+                            } finally {
+                                if (dbHelper != null) {
+                                    dbHelper.close();
+                                }
                             }
                         }
 
