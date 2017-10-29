@@ -3,5 +3,8 @@
     <string name="processing">Processing…</string>
     <string name="welcome">Welcome, %1$s</string>
     <string name="initial_sync_message">Initial sync will take a long time depending on your collection size</string>
-    <string name="collection_already_in_sync">Your collection is already in sync</string>
+    <string name="collection_in_sync">Your collection is in sync</string>
+    <string name="downloads_complete_message">All downloads are complete</string>
+    <string name="pending_sync_message">Found %1$d deletion(s) and %2$d new song(s). Please be patient...</string>
+    <string name="sign_in_before_sync">"You must sign in before syncing"</string>
 </resources>

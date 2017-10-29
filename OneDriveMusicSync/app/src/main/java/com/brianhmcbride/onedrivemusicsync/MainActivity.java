@@ -2,11 +2,16 @@ package com.brianhmcbride.onedrivemusicsync;
 
 import android.Manifest;
 import android.app.AlertDialog;
+import android.app.job.JobInfo;
+import android.app.job.JobScheduler;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.os.Handler;
 import android.os.Looper;
 import android.support.annotation.NonNull;
@@ -22,6 +27,8 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.brianhmcbride.onedrivemusicsync.data.MusicSyncContract;
+import com.brianhmcbride.onedrivemusicsync.data.MusicSyncDbHelper;
 import com.microsoft.identity.client.*;
 
 public class MainActivity extends AppCompatActivity {
@@ -37,6 +44,15 @@ public class MainActivity extends AppCompatActivity {
     private BroadcastReceiver clearSyncedCollectonCompleteBroadcastReceiver;
     private BroadcastReceiver syncCompleteBroadcastReceiver;
     private BroadcastReceiver syncPartialBroadcastReceiver;
+    private BroadcastReceiver deletionsCompleteBroadcastReceiver;
+    private BroadcastReceiver downloadsCompleteBroadcastReceiver;
+
+    private Handler triggerDownloadsHandler = new Handler();
+
+    MusicSyncDbHelper dbHelper;
+    SQLiteDatabase dbReader;
+
+    JobScheduler refreshTokenJobScheduler;
 
     @Override
     protected void onDestroy() {
@@ -45,6 +61,11 @@ public class MainActivity extends AppCompatActivity {
         LocalBroadcastManager.getInstance(this).unregisterReceiver(syncCompleteBroadcastReceiver);
         LocalBroadcastManager.getInstance(this).unregisterReceiver(syncPartialBroadcastReceiver);
         LocalBroadcastManager.getInstance(this).unregisterReceiver(clearSyncedCollectonCompleteBroadcastReceiver);
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(deletionsCompleteBroadcastReceiver);
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(downloadsCompleteBroadcastReceiver);
+
+        refreshTokenJobScheduler.cancelAll();
+        dbHelper.close();
     }
 
     @Override
@@ -54,6 +75,9 @@ public class MainActivity extends AppCompatActivity {
         isStoragePermissionGranted();
 
         setContentView(R.layout.activity_main);
+
+        dbHelper = new MusicSyncDbHelper(App.get());
+        dbReader = dbHelper.getReadableDatabase();
 
         signInButton = (Button) findViewById(R.id.signIn);
         signInButton.setOnClickListener(new View.OnClickListener() {
@@ -86,56 +110,81 @@ public class MainActivity extends AppCompatActivity {
         syncMusicStatusText = (TextView) findViewById(R.id.syncMusicStatus);
         welcomeText = (TextView) findViewById(R.id.welcome);
 
-        IntentFilter musicSyncCompleteIntentFilter = new IntentFilter(MusicSyncIntentService.BROADCAST_SYNC_COMPLETE_ACTION);
+        registerReceivers();
 
+        if (AuthenticationManager.getInstance().getAuthenticatedUserCount() == 1) {
+            AuthenticationManager.getInstance().acquireTokenSilent(getAuthSilentCallback());
+        } else {
+            signInButton.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void registerReceivers() {
         syncCompleteBroadcastReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                String status = intent.getStringExtra(MusicSyncIntentService.EXTENDED_DATA_STATUS);
 
-                String[] statuses = status.split("\\|");
-                int queuedDownloads = Integer.parseInt(statuses[0]);
-                int deletes = Integer.parseInt(statuses[1]);
-                int failures = Integer.parseInt(statuses[2]);
+                String[] projection = new String[]{"COUNT(*)"};
+                String selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_IS_MARKED_FOR_DELETION);
+                String[] selectionArgs = new String[]{"1"};
 
-                if (queuedDownloads == 0 && deletes == 0) {
-                    syncMusicStatusText.setText(getString(R.string.collection_already_in_sync));
+                Cursor cursor = dbReader.query(
+                        MusicSyncContract.DriveItem.TABLE_NAME,
+                        projection,
+                        selection,
+                        selectionArgs,
+                        null,
+                        null,
+                        null
+                );
+
+                cursor.moveToFirst();
+                int numberOfMarkedDeletions = cursor.getInt(0);
+                cursor.close();
+
+                selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_IS_DOWNLOAD_COMPLETE);
+                selectionArgs = new String[]{"0"};
+
+                cursor = dbReader.query(
+                        MusicSyncContract.DriveItem.TABLE_NAME,
+                        projection,
+                        selection,
+                        selectionArgs,
+                        null,
+                        null,
+                        null
+                );
+
+                cursor.moveToFirst();
+                int numberOfDownloads = cursor.getInt(0);
+                cursor.close();
+
+                if(numberOfMarkedDeletions == 0 && numberOfDownloads == 0){
+                    syncMusicStatusText.setText(R.string.collection_in_sync);
+                    clearSyncedCollectionButton.setVisibility(View.VISIBLE);
                 } else {
-                    syncMusicStatusText.setText("Completed discovery." + System.getProperty("line.separator") +
-                            "Queuing " + queuedDownloads + " downloads for new song(s)." + System.getProperty("line.separator") +
-                            "Deleting " + deletes + " song(s)." + System.getProperty("line.separator") +
-                            "Sync failures: " + failures);
+                    syncMusicStatusText.setText(getString(R.string.pending_sync_message, numberOfMarkedDeletions, numberOfDownloads));
+                    MusicSyncIntentService.startActionDelete(getActivity());
                 }
-
-                clearSyncedCollectionButton.setVisibility(View.VISIBLE);
-                MusicSyncIntentService.startActionDownloadAndDelete(getActivity());
             }
         };
-
-        LocalBroadcastManager.getInstance(this).registerReceiver(syncCompleteBroadcastReceiver, musicSyncCompleteIntentFilter);
-
-        IntentFilter musicSyncPartialIntentFilter = new IntentFilter(MusicSyncIntentService.BROADCAST_SYNC_PARTIAL_ACTION);
+        LocalBroadcastManager.getInstance(this).registerReceiver(syncCompleteBroadcastReceiver, new IntentFilter(MusicSyncIntentService.BROADCAST_SYNC_COMPLETE_ACTION));
 
         syncPartialBroadcastReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                String status = intent.getStringExtra(MusicSyncIntentService.EXTENDED_DATA_STATUS);
+                String status = syncMusicStatusText.getText().toString();
 
-                String[] statuses = status.split("\\|");
-                int queuedDownloads = Integer.parseInt(statuses[0]);
-                int deletes = Integer.parseInt(statuses[1]);
-                int failures = Integer.parseInt(statuses[2]);
+                if (status.contains("Processing")) {
+                    status += "...";
+                } else {
+                    status = getString(R.string.processing);
+                }
 
-                syncMusicStatusText.setText("Processing..." + System.getProperty("line.separator") +
-                        "Discovered " + queuedDownloads + " new song(s)." + System.getProperty("line.separator") +
-                        "Discovered " + deletes + " deletion(s)." + System.getProperty("line.separator") +
-                        "Sync failures: " + failures);
+                syncMusicStatusText.setText(status);
             }
         };
-
-        LocalBroadcastManager.getInstance(this).registerReceiver(syncPartialBroadcastReceiver, musicSyncPartialIntentFilter);
-
-        IntentFilter musicSyncClearSyncedCollectionCompleteIntentFilter = new IntentFilter(MusicSyncIntentService.BROADCAST_CLEAR_SYNCED_COLLECTION_COMPLETE_ACTION);
+        LocalBroadcastManager.getInstance(this).registerReceiver(syncPartialBroadcastReceiver, new IntentFilter(MusicSyncIntentService.BROADCAST_SYNC_PARTIAL_ACTION));
 
         clearSyncedCollectonCompleteBroadcastReceiver = new BroadcastReceiver() {
             @Override
@@ -144,15 +193,35 @@ public class MainActivity extends AppCompatActivity {
                 syncMusicStatusText.setText(getString(R.string.initial_sync_message));
             }
         };
+        LocalBroadcastManager.getInstance(this).registerReceiver(clearSyncedCollectonCompleteBroadcastReceiver, new IntentFilter(MusicSyncIntentService.BROADCAST_CLEAR_SYNCED_COLLECTION_COMPLETE_ACTION));
 
-        LocalBroadcastManager.getInstance(this).registerReceiver(clearSyncedCollectonCompleteBroadcastReceiver, musicSyncClearSyncedCollectionCompleteIntentFilter);
+        deletionsCompleteBroadcastReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                triggerDownloadsHandler.postDelayed(triggerDownloadsRunnable, 100);
+            }
+        };
+        LocalBroadcastManager.getInstance(this).registerReceiver(deletionsCompleteBroadcastReceiver, new IntentFilter(MusicSyncIntentService.BROADCAST_DELETE_COMPLETE_ACTION));
 
-        if (AuthenticationManager.getInstance().getAuthenticatedUserCount() == 1) {
-            AuthenticationManager.getInstance().acquireTokenSilent(getAuthSilentCallback());
-        } else {
-            signInButton.setVisibility(View.VISIBLE);
-        }
+        downloadsCompleteBroadcastReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                triggerDownloadsHandler.removeCallbacks(triggerDownloadsRunnable);
+                syncMusicStatusText.setText(getString(R.string.collection_in_sync));
+                clearSyncedCollectionButton.setVisibility(View.VISIBLE);
+            }
+        };
+        LocalBroadcastManager.getInstance(this).registerReceiver(downloadsCompleteBroadcastReceiver, new IntentFilter(MusicSyncIntentService.BROADCAST_DOWNLOADS_COMPLETE_ACTION));
     }
+
+    private Runnable triggerDownloadsRunnable = new Runnable() {
+        @Override
+        public void run() {
+            MusicSyncIntentService.startActionDownload(getActivity());
+
+            triggerDownloadsHandler.postDelayed(this, MusicSyncIntentService.WAIT_TIME_BETWEEN_DOWNLOAD_BATCHES);
+        }
+    };
 
     //
     // App callbacks for MSAL
@@ -227,6 +296,14 @@ public class MainActivity extends AppCompatActivity {
 
         welcomeText.setVisibility(View.VISIBLE);
         welcomeText.setText(getString(R.string.welcome, AuthenticationManager.getInstance().getAuthenticatedUserName()));
+
+        refreshTokenJobScheduler = (JobScheduler)getSystemService( Context.JOB_SCHEDULER_SERVICE );
+        JobInfo.Builder builder = new JobInfo.Builder( 1, new ComponentName( getPackageName(), RefreshTokenJobService.class.getName() ) );
+        builder.setPeriodic(JobInfo.getMinPeriodMillis());
+
+        if( refreshTokenJobScheduler.schedule( builder.build() ) <= 0 ) {
+            showToast("Failure scheduling token refresh service");
+        }
     }
 
     private void setUIToLoggedOut() {
@@ -236,6 +313,7 @@ public class MainActivity extends AppCompatActivity {
         signOutButton.setVisibility(View.GONE);
         clearSyncedCollectionButton.setVisibility(View.GONE);
         welcomeText.setVisibility(View.GONE);
+        refreshTokenJobScheduler.cancelAll();
     }
 
     private void onSignInClicked() {
@@ -250,7 +328,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void onSyncMusicClicked() {
         if (AuthenticationManager.getInstance().getAccessToken() == null) {
-            Toast.makeText(getBaseContext(), "You must sign in before syncing", Toast.LENGTH_SHORT).show();
+            showToast(getString(R.string.sign_in_before_sync));
             return;
         }
 
