@@ -335,7 +335,14 @@ public class MainActivity extends AppCompatActivity {
         syncMusicStatusText.setVisibility(View.VISIBLE);
         syncMusicStatusText.setText(getString(R.string.processing));
 
-        MusicSyncIntentService.startActionSync(getActivity());
+        String deltaLink = DeltaLinkManager.getInstance().getDeltaLink();
+
+        if (deltaLink == null) {
+            deltaLink = MusicSyncIntentService.DRIVE_MUSIC_ROOT_URL;
+        }
+
+        MusicSyncIntentService musicSyncIntentService = new MusicSyncIntentService();
+        musicSyncIntentService.SyncMusic(deltaLink, null);
     }
 
     private void clearSyncedCollectionClicked() {

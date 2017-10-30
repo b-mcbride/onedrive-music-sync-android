@@ -54,7 +54,6 @@ public class MusicSyncIntentService extends IntentService {
 
     static final String WAKE_LOCK_TAG = "com.brianhmcbride.onedrivemusicsync.wakelock";
     static final String ODATA_NEXT_LINK = "@odata.nextLink";
-    static final String ACTION_SYNC = "com.brianhmcbride.onedrivemusicsync.action.SYNC";
     static final String ACTION_DELETE = "com.brianhmcbride.onedrivemusicsync.action.DELETE";
     static final String ACTION_DOWNLOAD = "com.brianhmcbride.onedrivemusicsync.action.DOWNLOAD";
     static final String ACTION_CLEAR_SYNCED_COLLECTION = "com.brianhmcbride.onedrivemusicsync.action.CLEAR_SYNCED_COLLECTION";
@@ -76,12 +75,6 @@ public class MusicSyncIntentService extends IntentService {
 
     public MusicSyncIntentService() {
         super("MusicSyncIntentService");
-    }
-
-    public static void startActionSync(Context context) {
-        Intent intent = new Intent(context, MusicSyncIntentService.class);
-        intent.setAction(ACTION_SYNC);
-        context.startService(intent);
     }
 
     public static void startActionDelete(Context context) {
@@ -106,15 +99,6 @@ public class MusicSyncIntentService extends IntentService {
     protected void onHandleIntent(Intent intent) {
         if (intent != null) {
             final String action = intent.getAction();
-            if (ACTION_SYNC.equals(action)) {
-                String deltaLink = DeltaLinkManager.getInstance().getDeltaLink();
-
-                if (deltaLink == null) {
-                    deltaLink = DRIVE_MUSIC_ROOT_URL;
-                }
-
-                SyncMusic(deltaLink, null);
-            }
 
             if (ACTION_DELETE.equals(action)) {
                 PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
@@ -306,8 +290,8 @@ public class MusicSyncIntentService extends IntentService {
         }
     }
 
-    private void SyncMusic(String deltaLink, String nextLink) {
-        RequestQueue queue = Volley.newRequestQueue(this);
+    public void SyncMusic(String deltaLink, String nextLink) {
+        RequestQueue queue = Volley.newRequestQueue(App.get());
         JSONObject parameters = new JSONObject();
 
         try {
@@ -444,7 +428,7 @@ public class MusicSyncIntentService extends IntentService {
             }
         };
 
-        Log.d(MainActivity.TAG, String.format("Adding HTTP GET to Queue, Request: %s", request.toString()));
+        Log.d(TAG, String.format("Adding HTTP GET to Queue, Request: %s", request.toString()));
 
         request.setRetryPolicy(new DefaultRetryPolicy(
                 3000,
