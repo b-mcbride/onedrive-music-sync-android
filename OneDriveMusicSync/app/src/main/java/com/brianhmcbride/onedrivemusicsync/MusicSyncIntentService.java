@@ -50,6 +50,7 @@ public class MusicSyncIntentService extends IntentService {
     public static final String BROADCAST_DELETE_COMPLETE_ACTION = "com.brianhmcbride.onedrivemusicsync.DELETE_COMPLETE";
     public static final String BROADCAST_CLEAR_SYNCED_COLLECTION_COMPLETE_ACTION = "com.brianhmcbride.onedrivemusicsync.CLEAR_SYNCED_COLLECTION_COMPLETE";
     public static final String BROADCAST_DOWNLOADS_COMPLETE_ACTION = "com.brianhmcbride.onedrivemusicsync.DOWNLOADS_COMPLETE";
+    public static final String BROADCAST_DOWNLOADS_IN_PROGESS_ACTION = "com.brianhmcbride.onedrivemusicsync.DOWNLOADS_IN_PROGRESS";
 
 
     static final String WAKE_LOCK_TAG = "com.brianhmcbride.onedrivemusicsync.wakelock";
@@ -68,7 +69,7 @@ public class MusicSyncIntentService extends IntentService {
 
     /*DEPLOYMENT*/
     static final int MAX_DOWNLOADS_TO_QUEUE = 100;
-    static final int WAIT_TIME_BETWEEN_DOWNLOAD_BATCHES = 15000;
+    static final int WAIT_TIME_BETWEEN_DOWNLOAD_BATCHES = 30000;
     static final String DRIVE_MUSIC_ROOT_URL = "https://graph.microsoft.com/v1.0/me/drive/root:/Music:/delta";
     static final String PATH_REPLACE = "/drive/root:/Music/";
     static final int ALLOWED_NETWORK_TYPES = DownloadManager.Request.NETWORK_WIFI;
@@ -267,9 +268,13 @@ public class MusicSyncIntentService extends IntentService {
                         }
 
                         cursor.close();
+
+                        broadcastStatus(BROADCAST_DOWNLOADS_IN_PROGESS_ACTION);
                     } else{
                         broadcastStatus(BROADCAST_DOWNLOADS_COMPLETE_ACTION);
                     }
+                } else {
+                    broadcastStatus(BROADCAST_DOWNLOADS_IN_PROGESS_ACTION);
                 }
 
                 dbHelper.close();

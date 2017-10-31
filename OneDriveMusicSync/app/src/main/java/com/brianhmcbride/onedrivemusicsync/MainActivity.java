@@ -48,6 +48,7 @@ public class MainActivity extends AppCompatActivity {
     private BroadcastReceiver syncPartialBroadcastReceiver;
     private BroadcastReceiver deletionsCompleteBroadcastReceiver;
     private BroadcastReceiver downloadsCompleteBroadcastReceiver;
+    private BroadcastReceiver downloadsInProgressBroadcastReceiver;
 
     private Handler triggerDownloadsHandler = new Handler();
     private Handler triggerRefreshTokenHandler = new Handler();
@@ -64,6 +65,7 @@ public class MainActivity extends AppCompatActivity {
         LocalBroadcastManager.getInstance(this).unregisterReceiver(clearSyncedCollectonCompleteBroadcastReceiver);
         LocalBroadcastManager.getInstance(this).unregisterReceiver(deletionsCompleteBroadcastReceiver);
         LocalBroadcastManager.getInstance(this).unregisterReceiver(downloadsCompleteBroadcastReceiver);
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(downloadsInProgressBroadcastReceiver);
 
         triggerRefreshTokenHandler.removeCallbacks(triggerRefreshTokenRunnable);
         dbHelper.close();
@@ -200,6 +202,51 @@ public class MainActivity extends AppCompatActivity {
         };
         LocalBroadcastManager.getInstance(this).registerReceiver(deletionsCompleteBroadcastReceiver, new IntentFilter(MusicSyncIntentService.BROADCAST_DELETE_COMPLETE_ACTION));
 
+        downloadsInProgressBroadcastReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                String[] projection = new String[]{"COUNT(*)"};
+                String selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_IS_MARKED_FOR_DELETION);
+                String[] selectionArgs = new String[]{"1"};
+
+                Cursor cursor = dbReader.query(
+                        MusicSyncContract.DriveItem.TABLE_NAME,
+                        projection,
+                        selection,
+                        selectionArgs,
+                        null,
+                        null,
+                        null
+                );
+
+                cursor.moveToFirst();
+                int numberOfMarkedDeletions = cursor.getInt(0);
+                cursor.close();
+
+                selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_IS_DOWNLOAD_COMPLETE);
+                selectionArgs = new String[]{"0"};
+
+                cursor = dbReader.query(
+                        MusicSyncContract.DriveItem.TABLE_NAME,
+                        projection,
+                        selection,
+                        selectionArgs,
+                        null,
+                        null,
+                        null
+                );
+
+                cursor.moveToFirst();
+                int numberOfDownloads = cursor.getInt(0);
+                cursor.close();
+
+                syncMusicStatusText.setText(getString(R.string.sync_progress_message, numberOfMarkedDeletions, numberOfDownloads));
+
+                triggerDownloadsHandler.postDelayed(triggerDownloadsRunnable, MusicSyncIntentService.WAIT_TIME_BETWEEN_DOWNLOAD_BATCHES);
+            }
+        };
+        LocalBroadcastManager.getInstance(this).registerReceiver(downloadsInProgressBroadcastReceiver, new IntentFilter(MusicSyncIntentService.BROADCAST_DOWNLOADS_IN_PROGESS_ACTION));
+
         downloadsCompleteBroadcastReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
@@ -216,8 +263,6 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void run() {
             MusicSyncIntentService.startActionDownload(getActivity());
-
-            triggerDownloadsHandler.postDelayed(this, MusicSyncIntentService.WAIT_TIME_BETWEEN_DOWNLOAD_BATCHES);
         }
     };
 
