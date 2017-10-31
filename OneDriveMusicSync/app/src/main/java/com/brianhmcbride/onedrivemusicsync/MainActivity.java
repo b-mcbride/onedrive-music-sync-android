@@ -24,6 +24,7 @@ import android.content.Intent;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -40,6 +41,7 @@ public class MainActivity extends AppCompatActivity {
     Button clearSyncedCollectionButton;
     TextView syncMusicStatusText;
     TextView welcomeText;
+    LinearLayout linlaHeaderProgress;
 
     private BroadcastReceiver clearSyncedCollectonCompleteBroadcastReceiver;
     private BroadcastReceiver syncCompleteBroadcastReceiver;
@@ -109,6 +111,8 @@ public class MainActivity extends AppCompatActivity {
         syncMusicStatusText = (TextView) findViewById(R.id.syncMusicStatus);
         welcomeText = (TextView) findViewById(R.id.welcome);
 
+        linlaHeaderProgress = (LinearLayout) findViewById(R.id.linlaHeaderProgress);
+
         registerReceivers();
 
         if (AuthenticationManager.getInstance().getAuthenticatedUserCount() == 1) {
@@ -162,9 +166,12 @@ public class MainActivity extends AppCompatActivity {
                     syncMusicStatusText.setText(R.string.collection_in_sync);
                     clearSyncedCollectionButton.setVisibility(View.VISIBLE);
                 } else {
+                    syncMusicButton.setVisibility(View.GONE);
                     syncMusicStatusText.setText(getString(R.string.pending_sync_message, numberOfMarkedDeletions, numberOfDownloads));
                     MusicSyncIntentService.startActionDelete(getActivity());
                 }
+
+                linlaHeaderProgress.setVisibility(View.GONE);
             }
         };
         LocalBroadcastManager.getInstance(this).registerReceiver(syncCompleteBroadcastReceiver, new IntentFilter(MusicSyncIntentService.BROADCAST_SYNC_COMPLETE_ACTION));
@@ -172,15 +179,6 @@ public class MainActivity extends AppCompatActivity {
         syncPartialBroadcastReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                String status = syncMusicStatusText.getText().toString();
-
-                if (status.contains("Processing")) {
-                    status += "...";
-                } else {
-                    status = getString(R.string.processing);
-                }
-
-                syncMusicStatusText.setText(status);
             }
         };
         LocalBroadcastManager.getInstance(this).registerReceiver(syncPartialBroadcastReceiver, new IntentFilter(MusicSyncIntentService.BROADCAST_SYNC_PARTIAL_ACTION));
@@ -206,6 +204,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onReceive(Context context, Intent intent) {
                 triggerDownloadsHandler.removeCallbacks(triggerDownloadsRunnable);
+                syncMusicButton.setVisibility(View.VISIBLE);
                 syncMusicStatusText.setText(getString(R.string.collection_in_sync));
                 clearSyncedCollectionButton.setVisibility(View.VISIBLE);
             }
@@ -349,7 +348,9 @@ public class MainActivity extends AppCompatActivity {
         }
 
         syncMusicStatusText.setVisibility(View.VISIBLE);
-        syncMusicStatusText.setText(getString(R.string.processing));
+        syncMusicStatusText.setText("");
+
+        linlaHeaderProgress.setVisibility(View.VISIBLE);
 
         String deltaLink = DeltaLinkManager.getInstance().getDeltaLink();
 
