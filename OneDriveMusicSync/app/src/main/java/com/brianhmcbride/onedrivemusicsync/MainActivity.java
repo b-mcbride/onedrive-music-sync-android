@@ -48,11 +48,10 @@ public class MainActivity extends AppCompatActivity {
     private BroadcastReceiver downloadsCompleteBroadcastReceiver;
 
     private Handler triggerDownloadsHandler = new Handler();
+    private Handler triggerRefreshTokenHandler = new Handler();
 
     MusicSyncDbHelper dbHelper;
     SQLiteDatabase dbReader;
-
-    JobScheduler refreshTokenJobScheduler;
 
     @Override
     protected void onDestroy() {
@@ -64,7 +63,7 @@ public class MainActivity extends AppCompatActivity {
         LocalBroadcastManager.getInstance(this).unregisterReceiver(deletionsCompleteBroadcastReceiver);
         LocalBroadcastManager.getInstance(this).unregisterReceiver(downloadsCompleteBroadcastReceiver);
 
-        refreshTokenJobScheduler.cancelAll();
+        triggerRefreshTokenHandler.removeCallbacks(triggerRefreshTokenRunnable);
         dbHelper.close();
     }
 
@@ -159,7 +158,7 @@ public class MainActivity extends AppCompatActivity {
                 int numberOfDownloads = cursor.getInt(0);
                 cursor.close();
 
-                if(numberOfMarkedDeletions == 0 && numberOfDownloads == 0){
+                if (numberOfMarkedDeletions == 0 && numberOfDownloads == 0) {
                     syncMusicStatusText.setText(R.string.collection_in_sync);
                     clearSyncedCollectionButton.setVisibility(View.VISIBLE);
                 } else {
@@ -220,6 +219,29 @@ public class MainActivity extends AppCompatActivity {
             MusicSyncIntentService.startActionDownload(getActivity());
 
             triggerDownloadsHandler.postDelayed(this, MusicSyncIntentService.WAIT_TIME_BETWEEN_DOWNLOAD_BATCHES);
+        }
+    };
+
+    private Runnable triggerRefreshTokenRunnable = new Runnable() {
+        @Override
+        public void run() {
+            AuthenticationManager.getInstance().refreshToken(new AuthenticationCallback() {
+                @Override
+                public void onSuccess(AuthenticationResult authenticationResult) {
+                    Log.d(TAG, "Successfully refreshed token");
+                    triggerRefreshTokenHandler.postDelayed(triggerRefreshTokenRunnable, 2700000);
+                }
+
+                @Override
+                public void onError(MsalException exception) {
+                    Log.e(TAG, "Failure refreshing token", exception);
+                }
+
+                @Override
+                public void onCancel() {
+
+                }
+            });
         }
     };
 
@@ -297,13 +319,7 @@ public class MainActivity extends AppCompatActivity {
         welcomeText.setVisibility(View.VISIBLE);
         welcomeText.setText(getString(R.string.welcome, AuthenticationManager.getInstance().getAuthenticatedUserName()));
 
-        refreshTokenJobScheduler = (JobScheduler)getSystemService( Context.JOB_SCHEDULER_SERVICE );
-        JobInfo.Builder builder = new JobInfo.Builder( 1, new ComponentName( getPackageName(), RefreshTokenJobService.class.getName() ) );
-        builder.setPeriodic(JobInfo.getMinPeriodMillis());
-
-        if( refreshTokenJobScheduler.schedule( builder.build() ) <= 0 ) {
-            showToast("Failure scheduling token refresh service");
-        }
+        triggerRefreshTokenHandler.postDelayed(triggerRefreshTokenRunnable, 2700000);
     }
 
     private void setUIToLoggedOut() {
@@ -313,7 +329,7 @@ public class MainActivity extends AppCompatActivity {
         signOutButton.setVisibility(View.GONE);
         clearSyncedCollectionButton.setVisibility(View.GONE);
         welcomeText.setVisibility(View.GONE);
-        refreshTokenJobScheduler.cancelAll();
+        triggerRefreshTokenHandler.removeCallbacks(triggerRefreshTokenRunnable);
     }
 
     private void onSignInClicked() {
