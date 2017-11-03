@@ -2,11 +2,8 @@ package com.brianhmcbride.onedrivemusicsync;
 
 import android.app.DownloadManager;
 import android.app.IntentService;
-import android.content.ContentValues;
 import android.content.Intent;
 import android.content.Context;
-import android.database.Cursor;
-import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
 import android.os.Environment;
 import android.os.Handler;
@@ -14,6 +11,7 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
+import android.util.SparseArray;
 import android.widget.Toast;
 
 import com.android.volley.AuthFailureError;
@@ -24,7 +22,7 @@ import com.android.volley.Response;
 import com.android.volley.VolleyError;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
-import com.brianhmcbride.onedrivemusicsync.data.MusicSyncContract;
+import com.brianhmcbride.onedrivemusicsync.data.DriveItem;
 import com.brianhmcbride.onedrivemusicsync.data.MusicSyncDbHelper;
 
 import org.json.JSONArray;
@@ -32,6 +30,7 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.net.URLDecoder;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -107,27 +106,12 @@ public class MusicSyncIntentService extends IntentService {
 
                 wakeLock.acquire();
 
-                MusicSyncDbHelper dbHelper = new MusicSyncDbHelper(App.get());
-                SQLiteDatabase dbReader = dbHelper.getReadableDatabase();
-                SQLiteDatabase dbWriter = dbHelper.getWritableDatabase();
+                SparseArray<String> itemsMarkedForDeletion = MusicSyncDbHelper.getInstance(App.get()).getDriveItemsMarkedForDeletion();
 
-                String[] projection = {MusicSyncContract.DriveItem._ID, MusicSyncContract.DriveItem.COLUMN_NAME_FILESYSTEM_PATH};
-                String selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_IS_MARKED_FOR_DELETION);
-                String[] selectionArgs = {"1"};
-
-                Cursor cursor = dbReader.query(
-                        MusicSyncContract.DriveItem.TABLE_NAME,
-                        projection,
-                        selection,
-                        selectionArgs,
-                        null,
-                        null,
-                        null
-                );
-
-                while (cursor.moveToNext()) {
-                    int id = cursor.getInt(cursor.getColumnIndexOrThrow(MusicSyncContract.DriveItem._ID));
-                    String fileSystemPath = cursor.getString(cursor.getColumnIndexOrThrow(MusicSyncContract.DriveItem.COLUMN_NAME_FILESYSTEM_PATH));
+                for(int i = 0; i < itemsMarkedForDeletion.size(); i++) {
+                    int id = itemsMarkedForDeletion.keyAt(i);
+                    // get the object by the key.
+                    String fileSystemPath = itemsMarkedForDeletion.get(id);
 
                     try {
                         File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), fileSystemPath);
@@ -138,11 +122,7 @@ public class MusicSyncIntentService extends IntentService {
                             if (!isDeleteSuccess) {
                                 showToast(String.format("Failed to delete file: %s", fileSystemPath));
                             } else {
-                                // Define 'where' part of query.
-                                selection = MusicSyncContract.DriveItem._ID + " = ?";
-                                // Specify arguments in placeholder order.
-                                selectionArgs = new String[]{String.valueOf(id)};
-                                dbWriter.delete(MusicSyncContract.DriveItem.TABLE_NAME, selection, selectionArgs);
+                                MusicSyncDbHelper.getInstance(App.get()).deleteDriveItem(id);
                             }
                         }
                     } catch (Exception e) {
@@ -152,8 +132,6 @@ public class MusicSyncIntentService extends IntentService {
                     }
                 }
 
-                cursor.close();
-                dbHelper.close();
                 wakeLock.release();
 
                 broadcastStatus(BROADCAST_DELETE_COMPLETE_ACTION);
@@ -172,11 +150,8 @@ public class MusicSyncIntentService extends IntentService {
 
                 DeltaLinkManager.getInstance().clearDeltaLink();
 
-                MusicSyncDbHelper dbHelper = new MusicSyncDbHelper(App.get());
-                SQLiteDatabase dbWriter = dbHelper.getWritableDatabase();
-                dbWriter.execSQL("DELETE FROM " + MusicSyncContract.DriveItem.TABLE_NAME);
+                MusicSyncDbHelper.getInstance(App.get()).deleteAllDriveItems();
 
-                dbHelper.close();
                 wakeLock.release();
 
                 broadcastStatus(BROADCAST_CLEAR_SYNCED_COLLECTION_COMPLETE_ACTION);
@@ -188,86 +163,28 @@ public class MusicSyncIntentService extends IntentService {
 
                 wakeLock.acquire();
 
-                MusicSyncDbHelper dbHelper = new MusicSyncDbHelper(App.get());
-                SQLiteDatabase dbWriter = dbHelper.getWritableDatabase();
-                SQLiteDatabase dbReader = dbHelper.getReadableDatabase();
-
-                String[] projection = new String[]{"COUNT(*)"};
-                String selection = String.format("%s = ? AND (%s != ? AND %s IS NOT NULL)", MusicSyncContract.DriveItem.COLUMN_NAME_IS_DOWNLOAD_COMPLETE, MusicSyncContract.DriveItem.COLUMN_NAME_DOWNLOAD_ID, MusicSyncContract.DriveItem.COLUMN_NAME_DOWNLOAD_ID);
-                String[] selectionArgs = new String[]{"0", "0"};
-
-                Cursor cursor = dbReader.query(
-                        MusicSyncContract.DriveItem.TABLE_NAME,
-                        projection,
-                        selection,
-                        selectionArgs,
-                        null,
-                        null,
-                        null
-                );
-
-                cursor.moveToFirst();
-                int downloadsInProgress = cursor.getInt(0);
+                int downloadsInProgress = MusicSyncDbHelper.getInstance(App.get()).getNumberOfDriveItemDownloadsInProgress();
 
                 if (downloadsInProgress == 0) {
-                    projection = new String[]{"COUNT(*)"};
-                    selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_IS_DOWNLOAD_COMPLETE);
-                    selectionArgs = new String[]{"0"};
-
-                    cursor = dbReader.query(
-                            MusicSyncContract.DriveItem.TABLE_NAME,
-                            projection,
-                            selection,
-                            selectionArgs,
-                            null,
-                            null,
-                            null
-                    );
-
-                    cursor.moveToFirst();
-                    int downloadsRemaining = cursor.getInt(0);
+                    int downloadsRemaining = MusicSyncDbHelper.getInstance(App.get()).getNumberOfDriveItemDownloads();
 
                     if (downloadsRemaining != 0) {
                         DownloadManager downloadManager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
 
-                        projection = new String[]{MusicSyncContract.DriveItem._ID, MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID, MusicSyncContract.DriveItem.COLUMN_NAME_FILESYSTEM_PATH};
-                        selection = String.format("%s = ? OR %s IS NULL", MusicSyncContract.DriveItem.COLUMN_NAME_DOWNLOAD_ID, MusicSyncContract.DriveItem.COLUMN_NAME_DOWNLOAD_ID);
-                        selectionArgs = new String[]{"0"};
+                        ArrayList<DriveItem> driveItems = MusicSyncDbHelper.getInstance(App.get()).getDriveItemsToDownload(MAX_DOWNLOADS_TO_QUEUE);
 
-                        cursor = dbReader.query(
-                                MusicSyncContract.DriveItem.TABLE_NAME,
-                                projection,
-                                selection,
-                                selectionArgs,
-                                null,
-                                null,
-                                null,
-                                String.valueOf(MAX_DOWNLOADS_TO_QUEUE)
-                        );
-
-                        while (cursor.moveToNext()) {
-                            int id = cursor.getInt(cursor.getColumnIndexOrThrow(MusicSyncContract.DriveItem._ID));
-                            String driveItemId = cursor.getString(cursor.getColumnIndexOrThrow(MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID));
-                            String fileSystemPath = cursor.getString(cursor.getColumnIndexOrThrow(MusicSyncContract.DriveItem.COLUMN_NAME_FILESYSTEM_PATH));
-                            Uri downloadContentUri = Uri.parse(String.format("https://graph.microsoft.com/v1.0/me/drive/items/%s/content", driveItemId));
+                        for (DriveItem driveItem : driveItems) {
+                            Uri downloadContentUri = Uri.parse(String.format("https://graph.microsoft.com/v1.0/me/drive/items/%s/content", driveItem.getDriveItemId()));
 
                             DownloadManager.Request request = new DownloadManager.Request(downloadContentUri);
                             request.addRequestHeader("Authorization", String.format("Bearer %s", AuthenticationManager.getInstance().getAccessToken()));
-                            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, fileSystemPath);
+                            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, driveItem.getFileSystemPath());
                             request.setAllowedNetworkTypes(ALLOWED_NETWORK_TYPES);
                             request.setVisibleInDownloadsUi(false);
                             long downloadId = downloadManager.enqueue(request);
 
-                            selection = String.format("%s = ?", MusicSyncContract.DriveItem._ID);
-                            selectionArgs = new String[]{String.valueOf(id)};
-
-                            ContentValues values = new ContentValues();
-                            values.put(MusicSyncContract.DriveItem.COLUMN_NAME_DOWNLOAD_ID, downloadId);
-
-                            dbWriter.update(MusicSyncContract.DriveItem.TABLE_NAME, values, selection, selectionArgs);
+                            MusicSyncDbHelper.getInstance(App.get()).setDriveItemDownloadId(driveItem.getId(), downloadId);
                         }
-
-                        cursor.close();
 
                         broadcastStatus(BROADCAST_DOWNLOADS_IN_PROGESS_ACTION);
                     } else{
@@ -276,8 +193,6 @@ public class MusicSyncIntentService extends IntentService {
                 } else {
                     broadcastStatus(BROADCAST_DOWNLOADS_IN_PROGESS_ACTION);
                 }
-
-                dbHelper.close();
                 wakeLock.release();
             }
         }
@@ -315,12 +230,7 @@ public class MusicSyncIntentService extends IntentService {
                     @Override
                     public void onResponse(JSONObject response) {
                         if (response.has("value")) {
-                            MusicSyncDbHelper dbHelper = null;
                             try {
-                                dbHelper = new MusicSyncDbHelper(App.get());
-                                SQLiteDatabase dbReader = dbHelper.getReadableDatabase();
-                                SQLiteDatabase dbWriter = dbHelper.getWritableDatabase();
-
                                 JSONArray driveItemArray = response.getJSONArray("value");
 
                                 for (int i = 0; i < driveItemArray.length(); i++) {
@@ -333,22 +243,7 @@ public class MusicSyncIntentService extends IntentService {
                                             boolean isDeletedFile = driveItem.has("deleted");
 
                                             if (driveItem.getString("name").contains(".m4a") || driveItem.getString("name").contains("mp3")) {
-                                                String[] projection = {MusicSyncContract.DriveItem._ID, MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID};
-                                                String selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID);
-                                                String[] selectionArgs = {id};
-
-                                                Cursor cursor = dbReader.query(
-                                                        MusicSyncContract.DriveItem.TABLE_NAME,
-                                                        projection,
-                                                        selection,
-                                                        selectionArgs,
-                                                        null,
-                                                        null,
-                                                        null
-                                                );
-
-                                                boolean driveItemExistsInDatabase = cursor.getCount() > 0;
-                                                cursor.close();
+                                                boolean driveItemExistsInDatabase = MusicSyncDbHelper.getInstance(App.get()).doesDriveItemExist(id);
 
                                                 String parentPath = driveItem.getJSONObject("parentReference").getString("path").replace(PATH_REPLACE, "");
                                                 String filePath = String.format("%s/%s/%s", MUSIC_STORAGE_FOLDER, parentPath, name);
@@ -356,21 +251,11 @@ public class MusicSyncIntentService extends IntentService {
 
                                                 if (isDeletedFile) {
                                                     if (driveItemExistsInDatabase) {
-                                                        ContentValues values = new ContentValues();
-                                                        values.put(MusicSyncContract.DriveItem.COLUMN_NAME_IS_MARKED_FOR_DELETION, true);
-
-                                                        dbWriter.update(MusicSyncContract.DriveItem.TABLE_NAME, values, selection, selectionArgs);
+                                                        MusicSyncDbHelper.getInstance(App.get()).setDriveItemMarkedForDeletion(id, true);
                                                     }
                                                 } else {
                                                     if (!driveItemExistsInDatabase) {
-
-                                                        ContentValues values = new ContentValues();
-                                                        values.put(MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID, id);
-                                                        values.put(MusicSyncContract.DriveItem.COLUMN_NAME_IS_DOWNLOAD_COMPLETE, false);
-                                                        values.put(MusicSyncContract.DriveItem.COLUMN_NAME_IS_MARKED_FOR_DELETION, false);
-                                                        values.put(MusicSyncContract.DriveItem.COLUMN_NAME_FILESYSTEM_PATH, filePath);
-
-                                                        dbWriter.insert(MusicSyncContract.DriveItem.TABLE_NAME, null, values);
+                                                        MusicSyncDbHelper.getInstance(App.get()).insertDriveItem(id, false, false, filePath);
                                                     } else {
                                                         //Update scenario TBD
                                                     }
@@ -387,10 +272,6 @@ public class MusicSyncIntentService extends IntentService {
                                 String failureMessage = "Unrecoverable failure.";
                                 Log.e(TAG, failureMessage, e);
                                 showToast(String.format("Unknown music sync failure:%s", e.getMessage()));
-                            } finally {
-                                if (dbHelper != null) {
-                                    dbHelper.close();
-                                }
                             }
                         }
 

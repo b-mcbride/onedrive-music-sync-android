@@ -2,16 +2,12 @@ package com.brianhmcbride.onedrivemusicsync;
 
 import android.Manifest;
 import android.app.AlertDialog;
-import android.app.job.JobInfo;
-import android.app.job.JobScheduler;
 import android.content.BroadcastReceiver;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
-import android.database.sqlite.SQLiteDatabase;
 import android.os.Handler;
 import android.os.Looper;
 import android.support.annotation.NonNull;
@@ -53,9 +49,6 @@ public class MainActivity extends AppCompatActivity {
     private Handler triggerDownloadsHandler = new Handler();
     private Handler triggerRefreshTokenHandler = new Handler();
 
-    MusicSyncDbHelper dbHelper;
-    SQLiteDatabase dbReader;
-
     @Override
     protected void onDestroy() {
         super.onDestroy();
@@ -68,7 +61,6 @@ public class MainActivity extends AppCompatActivity {
         LocalBroadcastManager.getInstance(this).unregisterReceiver(downloadsInProgressBroadcastReceiver);
 
         triggerRefreshTokenHandler.removeCallbacks(triggerRefreshTokenRunnable);
-        dbHelper.close();
     }
 
     @Override
@@ -78,9 +70,6 @@ public class MainActivity extends AppCompatActivity {
         isStoragePermissionGranted();
 
         setContentView(R.layout.activity_main);
-
-        dbHelper = new MusicSyncDbHelper(App.get());
-        dbReader = dbHelper.getReadableDatabase();
 
         signInButton = (Button) findViewById(R.id.signIn);
         signInButton.setOnClickListener(new View.OnClickListener() {
@@ -128,41 +117,8 @@ public class MainActivity extends AppCompatActivity {
         syncCompleteBroadcastReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-
-                String[] projection = new String[]{"COUNT(*)"};
-                String selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_IS_MARKED_FOR_DELETION);
-                String[] selectionArgs = new String[]{"1"};
-
-                Cursor cursor = dbReader.query(
-                        MusicSyncContract.DriveItem.TABLE_NAME,
-                        projection,
-                        selection,
-                        selectionArgs,
-                        null,
-                        null,
-                        null
-                );
-
-                cursor.moveToFirst();
-                int numberOfMarkedDeletions = cursor.getInt(0);
-                cursor.close();
-
-                selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_IS_DOWNLOAD_COMPLETE);
-                selectionArgs = new String[]{"0"};
-
-                cursor = dbReader.query(
-                        MusicSyncContract.DriveItem.TABLE_NAME,
-                        projection,
-                        selection,
-                        selectionArgs,
-                        null,
-                        null,
-                        null
-                );
-
-                cursor.moveToFirst();
-                int numberOfDownloads = cursor.getInt(0);
-                cursor.close();
+                int numberOfMarkedDeletions = MusicSyncDbHelper.getInstance(App.get()).getNumberOfDriveItemsMarkedForDeletion();
+                int numberOfDownloads = MusicSyncDbHelper.getInstance(App.get()).getNumberOfDriveItemDownloads();
 
                 if (numberOfMarkedDeletions == 0 && numberOfDownloads == 0) {
                     syncMusicStatusText.setText(R.string.collection_in_sync);
@@ -205,40 +161,8 @@ public class MainActivity extends AppCompatActivity {
         downloadsInProgressBroadcastReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                String[] projection = new String[]{"COUNT(*)"};
-                String selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_IS_MARKED_FOR_DELETION);
-                String[] selectionArgs = new String[]{"1"};
-
-                Cursor cursor = dbReader.query(
-                        MusicSyncContract.DriveItem.TABLE_NAME,
-                        projection,
-                        selection,
-                        selectionArgs,
-                        null,
-                        null,
-                        null
-                );
-
-                cursor.moveToFirst();
-                int numberOfMarkedDeletions = cursor.getInt(0);
-                cursor.close();
-
-                selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_IS_DOWNLOAD_COMPLETE);
-                selectionArgs = new String[]{"0"};
-
-                cursor = dbReader.query(
-                        MusicSyncContract.DriveItem.TABLE_NAME,
-                        projection,
-                        selection,
-                        selectionArgs,
-                        null,
-                        null,
-                        null
-                );
-
-                cursor.moveToFirst();
-                int numberOfDownloads = cursor.getInt(0);
-                cursor.close();
+                int numberOfMarkedDeletions = MusicSyncDbHelper.getInstance(App.get()).getNumberOfDriveItemsMarkedForDeletion();
+                int numberOfDownloads = MusicSyncDbHelper.getInstance(App.get()).getNumberOfDriveItemDownloads();
 
                 syncMusicStatusText.setText(getString(R.string.sync_progress_message, numberOfMarkedDeletions, numberOfDownloads));
 
