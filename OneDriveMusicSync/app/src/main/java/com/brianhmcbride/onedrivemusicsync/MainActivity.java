@@ -7,7 +7,6 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
-import android.database.Cursor;
 import android.os.Handler;
 import android.os.Looper;
 import android.support.annotation.NonNull;
@@ -24,7 +23,6 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.brianhmcbride.onedrivemusicsync.data.MusicSyncContract;
 import com.brianhmcbride.onedrivemusicsync.data.MusicSyncDbHelper;
 import com.microsoft.identity.client.*;
 
@@ -146,6 +144,7 @@ public class MainActivity extends AppCompatActivity {
             public void onReceive(Context context, Intent intent) {
                 clearSyncedCollectionButton.setVisibility(View.GONE);
                 syncMusicStatusText.setText(getString(R.string.initial_sync_message));
+                linlaHeaderProgress.setVisibility(View.GONE);
             }
         };
         LocalBroadcastManager.getInstance(this).registerReceiver(clearSyncedCollectonCompleteBroadcastReceiver, new IntentFilter(MusicSyncIntentService.BROADCAST_CLEAR_SYNCED_COLLECTION_COMPLETE_ACTION));
@@ -328,7 +327,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         MusicSyncIntentService musicSyncIntentService = new MusicSyncIntentService();
-        musicSyncIntentService.SyncMusic(deltaLink, null);
+        musicSyncIntentService.SyncMusic(deltaLink, null, App.get());
     }
 
     private void clearSyncedCollectionClicked() {
@@ -337,6 +336,7 @@ public class MainActivity extends AppCompatActivity {
         alertDialogBuilder.setPositiveButton("yes", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface arg0, int arg1) {
+                linlaHeaderProgress.setVisibility(View.VISIBLE);
                 MusicSyncIntentService.startActionClearSyncedCollection(getActivity());
             }
         });

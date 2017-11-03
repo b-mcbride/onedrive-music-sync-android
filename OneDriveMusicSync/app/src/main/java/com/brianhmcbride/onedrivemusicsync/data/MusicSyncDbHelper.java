@@ -52,7 +52,7 @@ public class MusicSyncDbHelper extends SQLiteOpenHelper {
         onUpgrade(db, oldVersion, newVersion);
     }
 
-    public int getNumberOfDriveItemsMarkedForDeletion(){
+    public int getNumberOfDriveItemsMarkedForDeletion() {
         String[] projection = new String[]{"COUNT(*)"};
         String selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_IS_MARKED_FOR_DELETION);
         String[] selectionArgs = new String[]{"1"};
@@ -74,7 +74,7 @@ public class MusicSyncDbHelper extends SQLiteOpenHelper {
         return numberOfMarkedDeletions;
     }
 
-    public int getNumberOfDriveItemDownloads(){
+    public int getNumberOfDriveItemDownloads() {
         String[] projection = new String[]{"COUNT(*)"};
         String selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_IS_DOWNLOAD_COMPLETE);
         String[] selectionArgs = new String[]{"0"};
@@ -96,7 +96,7 @@ public class MusicSyncDbHelper extends SQLiteOpenHelper {
         return numberOfDownloads;
     }
 
-    public void setDriveItemDownloadComplete(long downloadId, boolean isDownloadComplete){
+    public void setDriveItemDownloadComplete(long downloadId, boolean isDownloadComplete) {
         String selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_DOWNLOAD_ID);
         String[] selectionArgs = {String.valueOf(downloadId)};
 
@@ -106,20 +106,20 @@ public class MusicSyncDbHelper extends SQLiteOpenHelper {
         this.getWritableDatabase().update(MusicSyncContract.DriveItem.TABLE_NAME, values, selection, selectionArgs);
     }
 
-    public void deleteDriveItem(int id){
+    public void deleteDriveItem(int id) {
         String selection = MusicSyncContract.DriveItem._ID + " = ?";
         String[] selectionArgs = new String[]{String.valueOf(id)};
         this.getWritableDatabase().delete(MusicSyncContract.DriveItem.TABLE_NAME, selection, selectionArgs);
     }
 
-    public void deleteAllDriveItems(){
+    public void deleteAllDriveItems() {
         this.getWritableDatabase().execSQL("DELETE FROM " + MusicSyncContract.DriveItem.TABLE_NAME);
     }
 
-    public SparseArray<String> getDriveItemsMarkedForDeletion(){
-        SparseArray<String> itemsMarkedForDeletion = new SparseArray<>();
+    public SparseArray<Long> getDriveItemsMarkedForDeletion() {
+        SparseArray<Long> itemsMarkedForDeletion = new SparseArray<>();
 
-        String[] projection = {MusicSyncContract.DriveItem._ID, MusicSyncContract.DriveItem.COLUMN_NAME_FILESYSTEM_PATH};
+        String[] projection = {MusicSyncContract.DriveItem._ID, MusicSyncContract.DriveItem.COLUMN_NAME_DOWNLOAD_ID};
         String selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_IS_MARKED_FOR_DELETION);
         String[] selectionArgs = {"1"};
 
@@ -135,16 +135,16 @@ public class MusicSyncDbHelper extends SQLiteOpenHelper {
 
         while (cursor.moveToNext()) {
             int id = cursor.getInt(cursor.getColumnIndexOrThrow(MusicSyncContract.DriveItem._ID));
-            String fileSystemPath = cursor.getString(cursor.getColumnIndexOrThrow(MusicSyncContract.DriveItem.COLUMN_NAME_FILESYSTEM_PATH));
+            long downloadId = cursor.getLong(cursor.getColumnIndexOrThrow(MusicSyncContract.DriveItem.COLUMN_NAME_DOWNLOAD_ID));
 
-            itemsMarkedForDeletion.put(id, fileSystemPath);
+            itemsMarkedForDeletion.put(id, downloadId);
         }
 
         cursor.close();
         return itemsMarkedForDeletion;
     }
 
-    public int getNumberOfDriveItemDownloadsInProgress(){
+    public int getNumberOfDriveItemDownloadsInProgress() {
         String[] projection = new String[]{"COUNT(*)"};
         String selection = String.format("%s = ? AND (%s != ? AND %s IS NOT NULL)", MusicSyncContract.DriveItem.COLUMN_NAME_IS_DOWNLOAD_COMPLETE, MusicSyncContract.DriveItem.COLUMN_NAME_DOWNLOAD_ID, MusicSyncContract.DriveItem.COLUMN_NAME_DOWNLOAD_ID);
         String[] selectionArgs = new String[]{"0", "0"};
@@ -165,7 +165,7 @@ public class MusicSyncDbHelper extends SQLiteOpenHelper {
         return downloadsInProgress;
     }
 
-    public void setDriveItemDownloadId(int id, long downloadId){
+    public void setDriveItemDownloadId(int id, long downloadId) {
         String selection = String.format("%s = ?", MusicSyncContract.DriveItem._ID);
         String[] selectionArgs = new String[]{String.valueOf(id)};
 
@@ -175,27 +175,7 @@ public class MusicSyncDbHelper extends SQLiteOpenHelper {
         this.getWritableDatabase().update(MusicSyncContract.DriveItem.TABLE_NAME, values, selection, selectionArgs);
     }
 
-    public boolean doesDriveItemExist(String driveItemId){
-        String[] projection = {MusicSyncContract.DriveItem._ID, MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID};
-        String selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID);
-        String[] selectionArgs = {driveItemId};
-
-        Cursor cursor = this.getReadableDatabase().query(
-                MusicSyncContract.DriveItem.TABLE_NAME,
-                projection,
-                selection,
-                selectionArgs,
-                null,
-                null,
-                null
-        );
-
-        boolean driveItemExistsInDatabase = cursor.getCount() > 0;
-        cursor.close();
-        return driveItemExistsInDatabase;
-    }
-
-    public void insertDriveItem(String driveItemId, boolean isDownloadComplete, boolean isMarkedForDeletion, String filePath){
+    public void insertDriveItem(String driveItemId, boolean isDownloadComplete, boolean isMarkedForDeletion, String filePath) {
         ContentValues values = new ContentValues();
         values.put(MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID, driveItemId);
         values.put(MusicSyncContract.DriveItem.COLUMN_NAME_IS_DOWNLOAD_COMPLETE, isDownloadComplete);
@@ -205,7 +185,7 @@ public class MusicSyncDbHelper extends SQLiteOpenHelper {
         this.getWritableDatabase().insert(MusicSyncContract.DriveItem.TABLE_NAME, null, values);
     }
 
-    public void setDriveItemMarkedForDeletion(String driveItemId, boolean isMarkedForDeletion){
+    public void setDriveItemMarkedForDeletion(String driveItemId, boolean isMarkedForDeletion) {
         String selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID);
         String[] selectionArgs = {driveItemId};
         ContentValues values = new ContentValues();
@@ -214,7 +194,7 @@ public class MusicSyncDbHelper extends SQLiteOpenHelper {
         this.getWritableDatabase().update(MusicSyncContract.DriveItem.TABLE_NAME, values, selection, selectionArgs);
     }
 
-    public ArrayList<DriveItem> getDriveItemsToDownload(int limit){
+    public ArrayList<DriveItem> getDriveItemsToDownload(int limit) {
         ArrayList<DriveItem> driveItems = new ArrayList<>();
 
         String[] projection = new String[]{MusicSyncContract.DriveItem._ID, MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID, MusicSyncContract.DriveItem.COLUMN_NAME_FILESYSTEM_PATH};
@@ -242,5 +222,57 @@ public class MusicSyncDbHelper extends SQLiteOpenHelper {
 
         cursor.close();
         return driveItems;
+    }
+
+    public DriveItem getDriveItemByDriveItemId(String driveItemId) {
+        DriveItem driveItem = null;
+
+        String[] projection = new String[]{MusicSyncContract.DriveItem._ID, MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID, MusicSyncContract.DriveItem.COLUMN_NAME_DOWNLOAD_ID};
+        String selection = String.format("%s = ?", MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID);
+        String[] selectionArgs = new String[]{driveItemId};
+
+        Cursor cursor = MusicSyncDbHelper.getInstance(App.get()).getReadableDatabase().query(
+                MusicSyncContract.DriveItem.TABLE_NAME,
+                projection,
+                selection,
+                selectionArgs,
+                null,
+                null,
+                null);
+
+        if (cursor.moveToNext()) {
+            int id = cursor.getInt(cursor.getColumnIndexOrThrow(MusicSyncContract.DriveItem._ID));
+            String dbDriveItemId = cursor.getString(cursor.getColumnIndexOrThrow(MusicSyncContract.DriveItem.COLUMN_NAME_DRIVE_ITEM_ID));
+            long downloadId = cursor.getLong(cursor.getColumnIndexOrThrow(MusicSyncContract.DriveItem.COLUMN_NAME_DOWNLOAD_ID));
+
+            driveItem = new DriveItem(id, dbDriveItemId, downloadId);
+        }
+
+        cursor.close();
+
+        return driveItem;
+    }
+
+    public ArrayList<Long> getAllDownloadIds() {
+        ArrayList<Long> downloadIds = new ArrayList<>();
+
+        String[] projection = new String[]{MusicSyncContract.DriveItem.COLUMN_NAME_DOWNLOAD_ID};
+
+        Cursor cursor = MusicSyncDbHelper.getInstance(App.get()).getReadableDatabase().query(
+                MusicSyncContract.DriveItem.TABLE_NAME,
+                projection,
+                null,
+                null,
+                null,
+                null,
+                null);
+
+        while (cursor.moveToNext()) {
+            downloadIds.add(cursor.getLong(cursor.getColumnIndexOrThrow(MusicSyncContract.DriveItem.COLUMN_NAME_DOWNLOAD_ID)));
+        }
+
+        cursor.close();
+
+        return downloadIds;
     }
 }

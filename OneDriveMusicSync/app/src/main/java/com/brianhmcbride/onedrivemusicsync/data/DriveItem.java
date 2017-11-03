@@ -8,6 +8,12 @@ public class DriveItem {
     private boolean isDownloadComplete;
     private boolean isMarkedForDeletion;
 
+    public DriveItem(int id, String driveItemId, long downloadId) {
+        this.id = id;
+        this.driveItemId = driveItemId;
+        this.downloadId = downloadId;
+    }
+
     public DriveItem(int id, String driveItemId, String fileSystemPath) {
         this.id = id;
         this.driveItemId = driveItemId;

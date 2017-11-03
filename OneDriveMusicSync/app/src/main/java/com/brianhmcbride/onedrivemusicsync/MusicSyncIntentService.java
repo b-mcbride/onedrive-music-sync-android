@@ -1,5 +1,6 @@
 package com.brianhmcbride.onedrivemusicsync;
 
+import android.annotation.SuppressLint;
 import android.app.DownloadManager;
 import android.app.IntentService;
 import android.content.Intent;
@@ -106,30 +107,12 @@ public class MusicSyncIntentService extends IntentService {
 
                 wakeLock.acquire();
 
-                SparseArray<String> itemsMarkedForDeletion = MusicSyncDbHelper.getInstance(App.get()).getDriveItemsMarkedForDeletion();
-
+                SparseArray<Long> itemsMarkedForDeletion = MusicSyncDbHelper.getInstance(App.get()).getDriveItemsMarkedForDeletion();
+                DownloadManager downloadManager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
                 for(int i = 0; i < itemsMarkedForDeletion.size(); i++) {
                     int id = itemsMarkedForDeletion.keyAt(i);
-                    // get the object by the key.
-                    String fileSystemPath = itemsMarkedForDeletion.get(id);
-
-                    try {
-                        File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), fileSystemPath);
-
-                        if (file.exists() && file.isFile()) {
-                            boolean isDeleteSuccess = file.delete();
-
-                            if (!isDeleteSuccess) {
-                                showToast(String.format("Failed to delete file: %s", fileSystemPath));
-                            } else {
-                                MusicSyncDbHelper.getInstance(App.get()).deleteDriveItem(id);
-                            }
-                        }
-                    } catch (Exception e) {
-                        String failureMessage = String.format("Failed to delete file: %s", fileSystemPath);
-                        Log.e(TAG, failureMessage, e);
-                        showToast(failureMessage);
-                    }
+                    long downloadId = itemsMarkedForDeletion.get(id);
+                    delete(id, downloadId, downloadManager);
                 }
 
                 wakeLock.release();
@@ -149,6 +132,18 @@ public class MusicSyncIntentService extends IntentService {
                 }
 
                 DeltaLinkManager.getInstance().clearDeltaLink();
+
+                ArrayList<Long> allDownloadIds = MusicSyncDbHelper.getInstance(App.get()).getAllDownloadIds();
+                DownloadManager downloadManager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                for (long downloadId : allDownloadIds) {
+                    try {
+                        downloadManager.remove(downloadId);
+                    } catch (Exception e) {
+                        @SuppressLint("DefaultLocale") String failureMessage = String.format("Failed to delete downloadId: %d", downloadId);
+                        Log.e(TAG, failureMessage, e);
+                        showToast(failureMessage);
+                    }
+                }
 
                 MusicSyncDbHelper.getInstance(App.get()).deleteAllDriveItems();
 
@@ -198,6 +193,17 @@ public class MusicSyncIntentService extends IntentService {
         }
     }
 
+    private void delete(int id, long downloadId, DownloadManager downloadManager){
+        try {
+            downloadManager.remove(downloadId);
+            MusicSyncDbHelper.getInstance(App.get()).deleteDriveItem(id);
+        } catch (Exception e) {
+            @SuppressLint("DefaultLocale") String failureMessage = String.format("Failed to delete downloadId: %d", downloadId);
+            Log.e(TAG, failureMessage, e);
+            showToast(failureMessage);
+        }
+    }
+
     private void deleteRecursive(File fileOrDirectory) {
         if (fileOrDirectory.isDirectory())
             for (File child : fileOrDirectory.listFiles())
@@ -210,7 +216,7 @@ public class MusicSyncIntentService extends IntentService {
         }
     }
 
-    public void SyncMusic(String deltaLink, String nextLink) {
+    public void SyncMusic(String deltaLink, String nextLink, final Context context) {
         RequestQueue queue = Volley.newRequestQueue(App.get());
         JSONObject parameters = new JSONObject();
 
@@ -243,47 +249,48 @@ public class MusicSyncIntentService extends IntentService {
                                             boolean isDeletedFile = driveItem.has("deleted");
 
                                             if (driveItem.getString("name").contains(".m4a") || driveItem.getString("name").contains("mp3")) {
-                                                boolean driveItemExistsInDatabase = MusicSyncDbHelper.getInstance(App.get()).doesDriveItemExist(id);
+                                                DriveItem dbDriveItem = MusicSyncDbHelper.getInstance(context).getDriveItemByDriveItemId(id);
 
                                                 String parentPath = driveItem.getJSONObject("parentReference").getString("path").replace(PATH_REPLACE, "");
                                                 String filePath = String.format("%s/%s/%s", MUSIC_STORAGE_FOLDER, parentPath, name);
                                                 filePath = URLDecoder.decode(filePath, "UTF-8");
 
                                                 if (isDeletedFile) {
-                                                    if (driveItemExistsInDatabase) {
-                                                        MusicSyncDbHelper.getInstance(App.get()).setDriveItemMarkedForDeletion(id, true);
+                                                    if (dbDriveItem != null) {
+                                                        MusicSyncDbHelper.getInstance(context).setDriveItemMarkedForDeletion(id, true);
                                                     }
                                                 } else {
-                                                    if (!driveItemExistsInDatabase) {
-                                                        MusicSyncDbHelper.getInstance(App.get()).insertDriveItem(id, false, false, filePath);
-                                                    } else {
-                                                        //Update scenario TBD
+                                                    if(dbDriveItem != null){
+                                                        //this is an edit scenario. easiest solution is delete it and requeue for download
+                                                        delete(dbDriveItem.getId(), dbDriveItem.getDownloadId(), (DownloadManager) context.getSystemService(DOWNLOAD_SERVICE));
                                                     }
+
+                                                    MusicSyncDbHelper.getInstance(context).insertDriveItem(id, false, false, filePath);
                                                 }
                                             }
                                         }
                                     } catch (Exception e) {
                                         String failureMessage = String.format("Failure working with driveItem. %s", driveItemArray.getJSONObject(i).toString());
                                         Log.e(TAG, failureMessage, e);
-                                        showToast("Music sync failure on driveItem");
+                                        showToast("Music sync failure on driveItem", context);
                                     }
                                 }
                             } catch (Exception e) {
                                 String failureMessage = "Unrecoverable failure.";
                                 Log.e(TAG, failureMessage, e);
-                                showToast(String.format("Unknown music sync failure:%s", e.getMessage()));
+                                showToast(String.format("Unknown music sync failure:%s", e.getMessage()), context);
                             }
                         }
 
                         try {
                             if (response.has(ODATA_NEXT_LINK)) {
                                 broadcastStatus(BROADCAST_SYNC_PARTIAL_ACTION);
-                                SyncMusic(null, response.getString(ODATA_NEXT_LINK));
+                                SyncMusic(null, response.getString(ODATA_NEXT_LINK), context);
                             }
                         } catch (Exception e) {
                             String failureMessage = "Unable to access odata next link.";
                             Log.e(TAG, failureMessage, e);
-                            showToast(failureMessage);
+                            showToast(failureMessage, context);
                         }
 
                         try {
@@ -295,7 +302,7 @@ public class MusicSyncIntentService extends IntentService {
                         } catch (Exception e) {
                             String failureMessage = "Unable to access odata delta link OR setting preferences.";
                             Log.e(TAG, failureMessage, e);
-                            showToast(failureMessage);
+                            showToast(failureMessage, context);
                         }
                     }
                 },
@@ -303,7 +310,7 @@ public class MusicSyncIntentService extends IntentService {
                     @Override
                     public void onErrorResponse(VolleyError error) {
                         Log.d(TAG, String.format("Error: %s", error.toString()));
-                        showToast("Failure syncing music. Review logs");
+                        showToast("Failure syncing music. Review logs", context);
                     }
                 }) {
             @Override
@@ -335,7 +342,18 @@ public class MusicSyncIntentService extends IntentService {
             @Override
             public void run() {
                 // run this code in the main thread
-                Toast.makeText(getApplicationContext(), msg, Toast.LENGTH_LONG).show();
+                Toast.makeText(App.get(), msg, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    protected void showToast(final String msg, final Context context) {
+        Handler handler = new Handler(Looper.getMainLooper());
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                // run this code in the main thread
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show();
             }
         });
     }
