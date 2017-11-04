@@ -247,13 +247,10 @@ public class MusicSyncIntentService extends IntentService {
                                             String id = driveItem.getString("id");
                                             String name = driveItem.getString("name");
                                             boolean isDeletedFile = driveItem.has("deleted");
+                                            boolean isAudio = driveItem.has("audio");
 
-                                            if (driveItem.getString("name").contains(".m4a") || driveItem.getString("name").contains("mp3")) {
+                                            if (isAudio) {
                                                 DriveItem dbDriveItem = MusicSyncDbHelper.getInstance(context).getDriveItemByDriveItemId(id);
-
-                                                String parentPath = driveItem.getJSONObject("parentReference").getString("path").replace(PATH_REPLACE, "");
-                                                String filePath = String.format("%s/%s/%s", MUSIC_STORAGE_FOLDER, parentPath, name);
-                                                filePath = URLDecoder.decode(filePath, "UTF-8");
 
                                                 if (dbDriveItem != null) {
                                                     //this scenario is either an edit or a delete. Either way we need to delete
@@ -262,6 +259,9 @@ public class MusicSyncIntentService extends IntentService {
 
                                                 if (!isDeletedFile) {
                                                     //this scenario is either a new song or an edit. Either way we need to download
+                                                    String parentPath = driveItem.getJSONObject("parentReference").getString("path").replace(PATH_REPLACE, "");
+                                                    String filePath = String.format("%s/%s/%s", MUSIC_STORAGE_FOLDER, parentPath, name);
+                                                    filePath = URLDecoder.decode(filePath, "UTF-8");
                                                     MusicSyncDbHelper.getInstance(context).insertDriveItem(id, false, false, filePath);
                                                 }
                                             }
