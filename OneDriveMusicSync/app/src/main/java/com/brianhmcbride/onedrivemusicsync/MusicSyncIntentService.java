@@ -109,7 +109,7 @@ public class MusicSyncIntentService extends IntentService {
 
                 SparseArray<Long> itemsMarkedForDeletion = MusicSyncDbHelper.getInstance(App.get()).getDriveItemsMarkedForDeletion();
                 DownloadManager downloadManager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-                for(int i = 0; i < itemsMarkedForDeletion.size(); i++) {
+                for (int i = 0; i < itemsMarkedForDeletion.size(); i++) {
                     int id = itemsMarkedForDeletion.keyAt(i);
                     long downloadId = itemsMarkedForDeletion.get(id);
                     delete(id, downloadId, downloadManager);
@@ -182,7 +182,7 @@ public class MusicSyncIntentService extends IntentService {
                         }
 
                         broadcastStatus(BROADCAST_DOWNLOADS_IN_PROGESS_ACTION);
-                    } else{
+                    } else {
                         broadcastStatus(BROADCAST_DOWNLOADS_COMPLETE_ACTION);
                     }
                 } else {
@@ -193,7 +193,7 @@ public class MusicSyncIntentService extends IntentService {
         }
     }
 
-    private void delete(int id, long downloadId, DownloadManager downloadManager){
+    private void delete(int id, long downloadId, DownloadManager downloadManager) {
         try {
             downloadManager.remove(downloadId);
             MusicSyncDbHelper.getInstance(App.get()).deleteDriveItem(id);
@@ -255,16 +255,13 @@ public class MusicSyncIntentService extends IntentService {
                                                 String filePath = String.format("%s/%s/%s", MUSIC_STORAGE_FOLDER, parentPath, name);
                                                 filePath = URLDecoder.decode(filePath, "UTF-8");
 
-                                                if (isDeletedFile) {
-                                                    if (dbDriveItem != null) {
-                                                        MusicSyncDbHelper.getInstance(context).setDriveItemMarkedForDeletion(id, true);
-                                                    }
-                                                } else {
-                                                    if(dbDriveItem != null){
-                                                        //this is an edit scenario. easiest solution is delete it and requeue for download
-                                                        delete(dbDriveItem.getId(), dbDriveItem.getDownloadId(), (DownloadManager) context.getSystemService(DOWNLOAD_SERVICE));
-                                                    }
+                                                if (dbDriveItem != null) {
+                                                    //this scenario is either an edit or a delete. Either way we need to delete
+                                                    MusicSyncDbHelper.getInstance(context).setDriveItemMarkedForDeletion(id, true);
+                                                }
 
+                                                if (!isDeletedFile) {
+                                                    //this scenario is either a new song or an edit. Either way we need to download
                                                     MusicSyncDbHelper.getInstance(context).insertDriveItem(id, false, false, filePath);
                                                 }
                                             }
