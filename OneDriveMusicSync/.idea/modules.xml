@@ -2,8 +2,8 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/OneDrive Music Sync/OneDrive Music Sync.iml" filepath="$PROJECT_DIR$/OneDrive Music Sync/OneDrive Music Sync.iml" />
       <module fileurl="file://$PROJECT_DIR$/OneDriveMusicSync.iml" filepath="$PROJECT_DIR$/OneDriveMusicSync.iml" />
+      <module fileurl="file://$PROJECT_DIR$/onedrive-music-sync/onedrive-music-sync.iml" filepath="$PROJECT_DIR$/onedrive-music-sync/onedrive-music-sync.iml" />
     </modules>
   </component>
 </project>
