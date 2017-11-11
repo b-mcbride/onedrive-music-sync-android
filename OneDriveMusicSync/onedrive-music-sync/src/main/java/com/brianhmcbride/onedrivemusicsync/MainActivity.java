@@ -33,8 +33,11 @@ public class MainActivity extends AppCompatActivity {
     Button signOutButton;
     Button syncMusicButton;
     Button clearSyncedCollectionButton;
+    Button resetDeltaButton;
+
     TextView syncMusicStatusText;
     TextView welcomeText;
+
     LinearLayout linlaHeaderProgress;
 
     private BroadcastReceiver clearSyncedCollectonCompleteBroadcastReceiver;
@@ -97,6 +100,13 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        resetDeltaButton = (Button) findViewById(R.id.resetDelta);
+        resetDeltaButton.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                resetDeltaClicked();
+            }
+        });
+
         syncMusicStatusText = (TextView) findViewById(R.id.syncMusicStatus);
         welcomeText = (TextView) findViewById(R.id.welcome);
 
@@ -119,8 +129,10 @@ public class MainActivity extends AppCompatActivity {
                 int numberOfDownloads = MusicSyncDbHelper.getInstance(App.get()).getNumberOfDriveItemDownloads();
 
                 if (numberOfMarkedDeletions == 0 && numberOfDownloads == 0) {
-                    syncMusicStatusText.setText(R.string.collection_in_sync);
+                    int count = MusicSyncDbHelper.getInstance(App.get()).getDriveItemCount();
+                    syncMusicStatusText.setText(getString(R.string.collection_in_sync, count));
                     clearSyncedCollectionButton.setVisibility(View.VISIBLE);
+                    resetDeltaButton.setVisibility(View.VISIBLE);
                 } else {
                     syncMusicButton.setVisibility(View.GONE);
                     syncMusicStatusText.setText(getString(R.string.pending_sync_message, numberOfMarkedDeletions, numberOfDownloads));
@@ -143,6 +155,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onReceive(Context context, Intent intent) {
                 clearSyncedCollectionButton.setVisibility(View.GONE);
+                resetDeltaButton.setVisibility(View.GONE);
                 syncMusicStatusText.setText(getString(R.string.initial_sync_message));
                 linlaHeaderProgress.setVisibility(View.GONE);
             }
@@ -175,8 +188,10 @@ public class MainActivity extends AppCompatActivity {
             public void onReceive(Context context, Intent intent) {
                 triggerDownloadsHandler.removeCallbacks(triggerDownloadsRunnable);
                 syncMusicButton.setVisibility(View.VISIBLE);
-                syncMusicStatusText.setText(getString(R.string.collection_in_sync));
+                int count = MusicSyncDbHelper.getInstance(App.get()).getDriveItemCount();
+                syncMusicStatusText.setText(getString(R.string.collection_in_sync, count));
                 clearSyncedCollectionButton.setVisibility(View.VISIBLE);
+                resetDeltaButton.setVisibility(View.VISIBLE);
             }
         };
         LocalBroadcastManager.getInstance(this).registerReceiver(downloadsCompleteBroadcastReceiver, new IntentFilter(MusicSyncIntentService.BROADCAST_DOWNLOADS_COMPLETE_ACTION));
@@ -280,7 +295,9 @@ public class MainActivity extends AppCompatActivity {
             syncMusicStatusText.setText(getString(R.string.initial_sync_message));
         } else {
             clearSyncedCollectionButton.setVisibility(View.VISIBLE);
-            syncMusicStatusText.setText("");
+            resetDeltaButton.setVisibility(View.VISIBLE);
+            int count = MusicSyncDbHelper.getInstance(App.get()).getDriveItemCount();
+            syncMusicStatusText.setText(getString(R.string.collection_in_sync, count));
         }
 
         welcomeText.setVisibility(View.VISIBLE);
@@ -295,6 +312,7 @@ public class MainActivity extends AppCompatActivity {
         syncMusicStatusText.setVisibility(View.GONE);
         signOutButton.setVisibility(View.GONE);
         clearSyncedCollectionButton.setVisibility(View.GONE);
+        resetDeltaButton.setVisibility(View.GONE);
         welcomeText.setVisibility(View.GONE);
         triggerRefreshTokenHandler.removeCallbacks(triggerRefreshTokenRunnable);
     }
@@ -327,7 +345,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         MusicSyncIntentService musicSyncIntentService = new MusicSyncIntentService();
-        musicSyncIntentService.SyncMusic(deltaLink, null, App.get());
+        musicSyncIntentService.syncMusic(deltaLink, null, App.get());
     }
 
     private void clearSyncedCollectionClicked() {
@@ -350,6 +368,11 @@ public class MainActivity extends AppCompatActivity {
 
         AlertDialog alertDialog = alertDialogBuilder.create();
         alertDialog.show();
+    }
+
+    private void resetDeltaClicked(){
+        MusicSyncIntentService musicSyncIntentService = new MusicSyncIntentService();
+        musicSyncIntentService.resetDelta(App.get());
     }
 
     /* Clears a user's tokens from the cache.

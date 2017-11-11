@@ -216,7 +216,63 @@ public class MusicSyncIntentService extends IntentService {
         }
     }
 
-    public void SyncMusic(String deltaLink, String nextLink, final Context context) {
+    public void resetDelta(final Context context){
+        RequestQueue queue = Volley.newRequestQueue(App.get());
+        JSONObject parameters = new JSONObject();
+
+        try {
+            parameters.put("key", "value");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to put parameters", e);
+        }
+
+        String url = String.format("%s?token=latest", MusicSyncIntentService.DRIVE_MUSIC_ROOT_URL);
+
+        JsonObjectRequest request = new JsonObjectRequest(
+                Request.Method.GET,
+                url,
+                parameters,
+                new Response.Listener<JSONObject>() {
+                    @Override
+                    public void onResponse(JSONObject response) {
+                        try {
+                            if (response.has(DeltaLinkManager.ODATA_DELTA_LINK)) {
+                                DeltaLinkManager.getInstance().setDeltaLink(response.getString(ODATA_DELTA_LINK));
+                                showToast("Reset delta complete", context);
+                            }
+                        } catch (Exception e) {
+                            String failureMessage = "Unable to access odata delta link OR setting preferences.";
+                            Log.e(TAG, failureMessage, e);
+                            showToast(failureMessage, context);
+                        }
+                    }
+                },
+                new Response.ErrorListener() {
+                    @Override
+                    public void onErrorResponse(VolleyError error) {
+                        Log.d(TAG, String.format("Error: %s", error.toString()));
+                        showToast("Failure resetting delta. Review logs", context);
+                    }
+                }) {
+            @Override
+            public Map<String, String> getHeaders() throws AuthFailureError {
+                Map<String, String> headers = new HashMap<>();
+                headers.put("Authorization", String.format("Bearer %s", AuthenticationManager.getInstance().getAccessToken()));
+                return headers;
+            }
+        };
+
+        Log.d(TAG, String.format("Adding HTTP GET to Queue, Request: %s", request.toString()));
+
+        request.setRetryPolicy(new DefaultRetryPolicy(
+                3000,
+                DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
+                DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
+
+        queue.add(request);
+    }
+
+    public void syncMusic(String deltaLink, String nextLink, final Context context) {
         RequestQueue queue = Volley.newRequestQueue(App.get());
         JSONObject parameters = new JSONObject();
 
@@ -282,7 +338,7 @@ public class MusicSyncIntentService extends IntentService {
                         try {
                             if (response.has(ODATA_NEXT_LINK)) {
                                 broadcastStatus(BROADCAST_SYNC_PARTIAL_ACTION);
-                                SyncMusic(null, response.getString(ODATA_NEXT_LINK), context);
+                                syncMusic(null, response.getString(ODATA_NEXT_LINK), context);
                             }
                         } catch (Exception e) {
                             String failureMessage = "Unable to access odata next link.";

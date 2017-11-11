@@ -275,4 +275,23 @@ public class MusicSyncDbHelper extends SQLiteOpenHelper {
 
         return downloadIds;
     }
+
+    public int getDriveItemCount(){
+        String[] projection = new String[]{"COUNT(*)"};
+
+        Cursor cursor = this.getReadableDatabase().query(
+                MusicSyncContract.DriveItem.TABLE_NAME,
+                projection,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        cursor.moveToFirst();
+        int count = cursor.getInt(0);
+        cursor.close();
+        return count;
+    }
 }

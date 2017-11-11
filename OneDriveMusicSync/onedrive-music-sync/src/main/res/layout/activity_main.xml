@@ -4,10 +4,10 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
     tools:context="com.brianhmcbride.onedrivemusicsync.MainActivity"
-    tools:layout_editor_absoluteY="81dp"
     tools:layout_editor_absoluteX="0dp"
-    android:orientation="vertical">
+    tools:layout_editor_absoluteY="81dp">
 
     <LinearLayout
         android:id="@+id/linlaHeaderProgress"
@@ -15,87 +15,118 @@
         android:layout_height="fill_parent"
         android:gravity="center"
         android:orientation="vertical"
-        android:visibility="gone" >
+        android:visibility="gone">
 
         <ProgressBar
             android:id="@+id/pbHeaderProgress"
-            android:indeterminate="true"
             style="@android:style/Widget.ProgressBar.Large"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content" >
-        </ProgressBar>
+            android:layout_height="wrap_content"
+            android:indeterminate="true"></ProgressBar>
     </LinearLayout>
 
     <TextView
+        android:id="@+id/welcome"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="15dp"
+        android:layout_marginTop="15dp"
         android:text="Welcome, "
         android:textColor="#3f3f3f"
         android:textSize="50px"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginLeft="10dp"
-        android:layout_marginTop="15dp"
-        android:id="@+id/welcome"
-        android:visibility="invisible"/>
+        android:visibility="invisible" />
 
     <Button
         android:id="@+id/signIn"
-        android:text="Sign In"
-        android:textColor="#FFFFFF"
-        android:background="#00a1f1"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginLeft="15dp"
+        android:layout_marginRight="15dp"
         android:layout_marginTop="200dp"
+        android:background="#00a1f1"
+        android:text="Sign In"
         android:textAllCaps="false"
-        android:visibility="gone"/>
+        android:textColor="#FFFFFF"
+        android:visibility="gone" />
 
     <Button
         android:id="@+id/syncMusic"
-        android:text="Sync Music"
-        android:textColor="#FFFFFF"
-        android:background="#00a1f1"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginLeft="15dp"
+        android:layout_marginRight="15dp"
         android:layout_marginTop="200dp"
+        android:background="#00a1f1"
+        android:text="Sync Music"
         android:textAllCaps="false"
-        android:visibility="gone"/>
+        android:textColor="#FFFFFF"
+        android:visibility="gone" />
 
     <TextView
-        android:textColor="#3f3f3f"
-        android:textSize="50px"
+        android:id="@+id/syncMusicStatus"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginLeft="10dp"
+        android:layout_marginLeft="15dp"
         android:layout_marginTop="15dp"
-        android:id="@+id/syncMusicStatus"
-        android:visibility="invisible"/>
+        android:textColor="#3f3f3f"
+        android:textSize="50px"
+        android:visibility="invisible" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dip"
         android:layout_weight="1"
         android:gravity="center|bottom"
-        android:orientation="vertical" >
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dip"
+            android:layout_weight="1"
+            android:gravity="center|bottom"
+            android:orientation="horizontal"
+            android:weightSum="1.0">
+
+            <Button
+                android:id="@+id/clearSyncedCollection"
+                android:layout_width="0dip"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="5dp"
+                android:layout_marginLeft="15dp"
+                android:layout_marginRight="7dp"
+                android:layout_weight=".5"
+                android:background="#00a1f1"
+                android:text="Clear collection"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:visibility="invisible" />
+
+            <Button
+                android:id="@+id/resetDelta"
+                android:layout_width="0dip"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="5dp"
+                android:layout_marginLeft="7dp"
+                android:layout_marginRight="15dp"
+                android:layout_weight=".5"
+                android:background="#00a1f1"
+                android:text="Reset delta"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:visibility="invisible" />
+        </LinearLayout>
 
         <Button
-            android:text="Clear synced collection"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="15dp"
-            android:textColor="#FFFFFF"
-            android:background="#00a1f1"
-            android:textAllCaps="false"
-            android:id="@+id/clearSyncedCollection"
-            android:visibility="invisible" />
-
-        <Button
-            android:text="Sign Out"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="15dp"
-            android:textColor="#FFFFFF"
-            android:background="#00a1f1"
-            android:textAllCaps="false"
             android:id="@+id/signOut"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="15dp"
+            android:layout_marginRight="15dp"
+            android:layout_marginBottom="5dp"
+            android:background="#00a1f1"
+            android:text="Sign Out"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
             android:visibility="invisible" />
     </LinearLayout>
 
