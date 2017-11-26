@@ -48,6 +48,7 @@ public class MusicSyncIntentService extends IntentService {
     public static final String BROADCAST_SYNC_COMPLETE_ACTION = "com.brianhmcbride.onedrivemusicsync.COMPLETE";
     public static final String BROADCAST_SYNC_PARTIAL_ACTION = "com.brianhmcbride.onedrivemusicsync.PARTIAL";
     public static final String BROADCAST_DELETE_COMPLETE_ACTION = "com.brianhmcbride.onedrivemusicsync.DELETE_COMPLETE";
+    public static final String BROADCAST_MOVE_COMPLETE_ACTION = "com.brianhmcbride.onedrivemusicsync.MOVE_COMPLETE";
     public static final String BROADCAST_CLEAR_SYNCED_COLLECTION_COMPLETE_ACTION = "com.brianhmcbride.onedrivemusicsync.CLEAR_SYNCED_COLLECTION_COMPLETE";
     public static final String BROADCAST_DOWNLOADS_COMPLETE_ACTION = "com.brianhmcbride.onedrivemusicsync.DOWNLOADS_COMPLETE";
     public static final String BROADCAST_DOWNLOADS_IN_PROGESS_ACTION = "com.brianhmcbride.onedrivemusicsync.DOWNLOADS_IN_PROGRESS";
@@ -56,9 +57,11 @@ public class MusicSyncIntentService extends IntentService {
     static final String WAKE_LOCK_TAG = "com.brianhmcbride.onedrivemusicsync.wakelock";
     static final String ODATA_NEXT_LINK = "@odata.nextLink";
     static final String ACTION_DELETE = "com.brianhmcbride.onedrivemusicsync.action.DELETE";
+    static final String ACTION_MOVE = "com.brianhmcbride.onedrivemusicsync.action.MOVE";
     static final String ACTION_DOWNLOAD = "com.brianhmcbride.onedrivemusicsync.action.DOWNLOAD";
     static final String ACTION_CLEAR_SYNCED_COLLECTION = "com.brianhmcbride.onedrivemusicsync.action.CLEAR_SYNCED_COLLECTION";
     static final String MUSIC_STORAGE_FOLDER = "OneDriveMusicSync";
+    static final String TMP_MUSIC_STORAGE_FOLDER = "tmp_OneDriveMusicSync";
 
     /* DEVELOPMENT*/
 //    static final int MAX_DOWNLOADS_TO_QUEUE = 1;
@@ -93,6 +96,12 @@ public class MusicSyncIntentService extends IntentService {
     public static void startActionClearSyncedCollection(Context context) {
         Intent intent = new Intent(context, MusicSyncIntentService.class);
         intent.setAction(ACTION_CLEAR_SYNCED_COLLECTION);
+        context.startService(intent);
+    }
+
+    public static void startActionMove(Context context) {
+        Intent intent = new Intent(context, MusicSyncIntentService.class);
+        intent.setAction(ACTION_MOVE);
         context.startService(intent);
     }
 
@@ -190,6 +199,25 @@ public class MusicSyncIntentService extends IntentService {
                 }
                 wakeLock.release();
             }
+
+            if (ACTION_MOVE.equals(action)) {
+                PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+                PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG);
+
+                wakeLock.acquire();
+
+                File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), TMP_MUSIC_STORAGE_FOLDER);
+
+                if (file.exists() && file.isDirectory()) {
+                    moveRecursive(file);
+                }
+
+                deleteRecursive(file);
+
+                wakeLock.release();
+
+                broadcastStatus(BROADCAST_MOVE_COMPLETE_ACTION);
+            }
         }
     }
 
@@ -204,15 +232,43 @@ public class MusicSyncIntentService extends IntentService {
         }
     }
 
-    private void deleteRecursive(File fileOrDirectory) {
+    private void moveRecursive(File fileOrDirectory) {
         if (fileOrDirectory.isDirectory())
             for (File child : fileOrDirectory.listFiles())
-                deleteRecursive(child);
+                moveRecursive(child);
 
-        boolean isSuccess = fileOrDirectory.delete();
+        if(!fileOrDirectory.isDirectory()){
+            File to = new File(fileOrDirectory.getParent().replace(TMP_MUSIC_STORAGE_FOLDER, MUSIC_STORAGE_FOLDER), fileOrDirectory.getName());
 
-        if (!isSuccess) {
-            showToast(String.format("Failure deleting %s", fileOrDirectory.getName()));
+            if(!to.getParentFile().exists()){
+                boolean isSuccessMkDirs = to.getParentFile().mkdirs();
+
+                if(!isSuccessMkDirs){
+                    showToast(String.format("Failure making directories for %s", fileOrDirectory.getName()));
+                }
+            }
+
+            boolean isSuccess = fileOrDirectory.renameTo(to);
+
+            if (!isSuccess) {
+                showToast(String.format("Failure moving %s", fileOrDirectory.getName()));
+            }
+        }
+    }
+
+    private void deleteRecursive(File fileOrDirectory) {
+        if(fileOrDirectory.exists()){
+            if (fileOrDirectory.isDirectory()){
+                for (File child : fileOrDirectory.listFiles()) {
+                    deleteRecursive(child);
+                }
+            }
+
+            boolean isSuccess = fileOrDirectory.delete();
+
+            if (!isSuccess) {
+                showToast(String.format("Failure deleting %s", fileOrDirectory.getName()));
+            }
         }
     }
 
@@ -316,7 +372,7 @@ public class MusicSyncIntentService extends IntentService {
                                                 if (!isDeletedFile) {
                                                     //this scenario is either a new song or an edit. Either way we need to download
                                                     String parentPath = driveItem.getJSONObject("parentReference").getString("path").replace(PATH_REPLACE, "");
-                                                    String filePath = String.format("%s/%s/%s", MUSIC_STORAGE_FOLDER, parentPath, name);
+                                                    String filePath = String.format("%s/%s/%s", TMP_MUSIC_STORAGE_FOLDER, parentPath, name);
                                                     filePath = URLDecoder.decode(filePath, "UTF-8");
                                                     MusicSyncDbHelper.getInstance(context).insertDriveItem(id, false, false, filePath);
                                                 }

@@ -46,6 +46,7 @@ public class MainActivity extends AppCompatActivity {
     private BroadcastReceiver deletionsCompleteBroadcastReceiver;
     private BroadcastReceiver downloadsCompleteBroadcastReceiver;
     private BroadcastReceiver downloadsInProgressBroadcastReceiver;
+    private BroadcastReceiver moveCompleteBroadcastReceiver;
 
     private Handler triggerDownloadsHandler = new Handler();
     private Handler triggerRefreshTokenHandler = new Handler();
@@ -60,6 +61,7 @@ public class MainActivity extends AppCompatActivity {
         LocalBroadcastManager.getInstance(this).unregisterReceiver(deletionsCompleteBroadcastReceiver);
         LocalBroadcastManager.getInstance(this).unregisterReceiver(downloadsCompleteBroadcastReceiver);
         LocalBroadcastManager.getInstance(this).unregisterReceiver(downloadsInProgressBroadcastReceiver);
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(moveCompleteBroadcastReceiver);
 
         triggerRefreshTokenHandler.removeCallbacks(triggerRefreshTokenRunnable);
     }
@@ -187,6 +189,15 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onReceive(Context context, Intent intent) {
                 triggerDownloadsHandler.removeCallbacks(triggerDownloadsRunnable);
+                syncMusicStatusText.setText(getString(R.string.moving_files));
+                MusicSyncIntentService.startActionMove(getActivity());
+            }
+        };
+        LocalBroadcastManager.getInstance(this).registerReceiver(downloadsCompleteBroadcastReceiver, new IntentFilter(MusicSyncIntentService.BROADCAST_DOWNLOADS_COMPLETE_ACTION));
+
+        moveCompleteBroadcastReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
                 syncMusicButton.setVisibility(View.VISIBLE);
                 int count = MusicSyncDbHelper.getInstance(App.get()).getDriveItemCount();
                 syncMusicStatusText.setText(getString(R.string.collection_in_sync, count));
@@ -194,7 +205,7 @@ public class MainActivity extends AppCompatActivity {
                 resetDeltaButton.setVisibility(View.VISIBLE);
             }
         };
-        LocalBroadcastManager.getInstance(this).registerReceiver(downloadsCompleteBroadcastReceiver, new IntentFilter(MusicSyncIntentService.BROADCAST_DOWNLOADS_COMPLETE_ACTION));
+        LocalBroadcastManager.getInstance(this).registerReceiver(moveCompleteBroadcastReceiver, new IntentFilter(MusicSyncIntentService.BROADCAST_MOVE_COMPLETE_ACTION));
     }
 
     private Runnable triggerDownloadsRunnable = new Runnable() {
