@@ -252,6 +252,8 @@ public class MusicSyncIntentService extends IntentService {
 
             if (!isSuccess) {
                 showToast(String.format("Failure moving %s", fileOrDirectory.getName()));
+            }else{
+                sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(to)));
             }
         }
     }
